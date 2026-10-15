@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.1 — 2026-10-15
+
+- Add the supplied Glissway artwork as regular, adaptive and monochrome launcher icons.
+- Apply Android safe-area insets once through the native container; align portrait top spacing with the bottom dock.
+- Publish the current Android/WebView project under the Glissway repository name.
+
+## 1.1 — 2026-10-15
+
+- Adopt Glissway branding and integrate the existing HTML interface into Android.
+- Center Edit / Live and replace the status dot with a true connection halo.
+- Add standard 14-bit Pitch Bend over the existing BLE and RTP-MIDI send paths.
+- Add per-mapping output type, axis, sensitivity, channel conflict checks and center reset.
+- Add local named presets, explicit save/load, duplication, rename, confirmed deletion and unsaved draft recovery.
+- Import existing native/web configuration while preserving the app identity for upgrades.
+- Preserve Monet and the existing bubble geometry solver.
+
+
 ## 1.0 — 2026-10-07
 
 - Correct AppleMIDI invitation fields and session-name termination; validate the response token at the correct offset.

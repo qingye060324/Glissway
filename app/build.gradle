@@ -2,6 +2,16 @@ plugins { id 'com.android.application' }
 android {
  namespace 'com.example.tiltmidi'
  compileSdk 35
- defaultConfig { applicationId 'com.example.tiltmidi'; minSdk 26; targetSdk 35; versionCode 2; versionName '1.0' }
+ defaultConfig { applicationId 'com.example.tiltmidi'; minSdk 26; targetSdk 35; versionCode 4; versionName '1.1.1' }
  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
+
+// Share the browser UI with Android; keep one editable source of truth.
+def syncGlisswayUi = tasks.register('syncGlisswayUi', Copy) {
+ from('../design') {
+  include 'ui-preview.html', 'glissway-presets.js'
+  rename 'ui-preview.html', 'index.html'
+ }
+ into 'src/main/assets'
+}
+tasks.named('preBuild').configure { dependsOn syncGlisswayUi }

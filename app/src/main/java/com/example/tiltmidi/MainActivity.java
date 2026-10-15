@@ -1,24 +1,546 @@
 package com.example.tiltmidi;
-import android.Manifest;import android.app.*;import android.content.*;import android.content.pm.PackageManager;import android.hardware.*;import android.os.*;import android.view.*;import android.widget.*;import android.text.*;import org.json.*;import java.util.*;
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.content.res.Configuration;
+import android.graphics.Color;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.Surface;
+import android.view.View;
+import android.view.WindowInsets;
+import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
+import android.webkit.JsPromptResult;
+import android.webkit.JsResult;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayInputStream;
+import java.util.Collections;
+import java.util.Locale;
+import java.util.concurrent.Callable;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+
+/** Trusted local UI, with the existing BLE and RTP transports kept intact. */
 public class MainActivity extends Activity implements SensorEventListener {
- SensorManager sensors; Sensor rotation; BleMidi ble; RtpMidi rtp; ArrayList<Mapping> maps=new ArrayList<>(); LinearLayout root,cards; TextView status,angle; float pitch,roll,zeroPitch,zeroRoll; SharedPreferences prefs; Handler clock=new Handler(); boolean active=false; int turn=0,sent=0;
- final Runnable tick=new Runnable(){public void run(){if(!active)return; angle.setText(String.format(java.util.Locale.US,"Pitch %.1f° · Roll %.1f° · 已发送 %d",pitch-zeroPitch,roll-zeroRoll,sent));if((ble.connected()||rtp.connected())&&!maps.isEmpty()){for(int n=0;n<maps.size();n++){Mapping m=maps.get(turn++%maps.size());if(!m.enabled)continue;int v=m.value(m.axis==1?pitch-zeroPitch:roll-zeroRoll);if(v!=m.last){if((rtp.connected()?rtp.send(m.channel,m.cc,v):ble.send(m.channel,m.cc,v))){m.last=v;sent++;}break;}}}clock.postDelayed(this,10);}};
- @Override public void onCreate(Bundle b){super.onCreate(b);prefs=getSharedPreferences("config",0);load();sensors=(SensorManager)getSystemService(SENSOR_SERVICE);rotation=sensors.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR);if(rotation==null)rotation=sensors.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);build();ble=new BleMidi(this,s->runOnUiThread(()->{status.setText(s);for(Mapping m:maps)m.last=-1;}));rtp=new RtpMidi(s->runOnUiThread(()->{status.setText(s);for(Mapping m:maps)m.last=-1;}));}
- void start(){if(Build.VERSION.SDK_INT>=31&&(checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED||checkSelfPermission(Manifest.permission.BLUETOOTH_ADVERTISE)!=PackageManager.PERMISSION_GRANTED)){requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT,Manifest.permission.BLUETOOTH_ADVERTISE},9);return;}rtp.disconnect();ble.stop();ble.start();}
- @Override public void onRequestPermissionsResult(int r,String[]p,int[]g){super.onRequestPermissionsResult(r,p,g);if(r==9&&g.length>0&&g[0]==PackageManager.PERMISSION_GRANTED)start();else status.setText("请授予蓝牙连接和广播权限");}
- void build(){getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);ScrollView sc=new ScrollView(this);root=column();root.setPadding(24,24,24,32);sc.addView(root);setContentView(sc);root.addView(text("Tilt MIDI · 体感控制器",24));status=text("未启动 BLE MIDI",14);root.addView(status);angle=text("等待传感器",16);root.addView(angle);root.addView(btn("启动 / 重启 BLE MIDI",()->start()));root.addView(btn("停止 MIDI",()->{ble.stop();rtp.disconnect();status.setText("已停止");}));root.addView(btn("连接 RTP-MIDI（Wi-Fi）",()->rtpDialog()));root.addView(btn("当前位置校准为中心",()->{zeroPitch=pitch;zeroRoll=roll;for(Mapping m:maps)m.filtered=Double.NaN;}));root.addView(btn("添加控制器",()->{if(maps.size()>=32){status.setText("最多 32 个映射");return;}maps.add(new Mapping());save();render();}));cards=column();root.addView(cards);root.addView(text("Wi-Fi RTP-MIDI：输入 Mac 网络会话或 Windows rtpMIDI 主机 IP 与 UDP 控制端口（通常 5004）。BLE 或 RTP-MIDI 二选一。保持前台运行。",13));render();}
- LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(1);return l;}
- TextView text(String s,int size){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setPadding(0,8,0,8);return t;}
- Button btn(String s,Runnable r){Button b=new Button(this);b.setText(s);b.setOnClickListener(v->r.run());return b;}
- void render(){cards.removeAllViews();for(Mapping m:maps){LinearLayout box=column();box.setPadding(8,20,8,20);box.addView(field("名称",m.name,s->{m.name=s;save();},false));Spinner axis=new Spinner(this);axis.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"左右倾斜 Roll","前后倾斜 Pitch","手动滑块"}));axis.setSelection(m.axis);axis.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){public void onNothingSelected(AdapterView<?>a){}public void onItemSelected(AdapterView<?>a,View v,int i,long id){m.axis=i;m.filtered=Double.NaN;m.last=-1;save();}});box.addView(axis);number(box,"CC 编号 (0–127)",m.cc,0,127,v->m.cc=v);number(box,"MIDI 通道 (1–16)",m.channel,1,16,v->m.channel=v);number(box,"输出最小值 (0–127)",m.low,0,127,v->m.low=v);number(box,"输出最大值 (0–127)",m.high,0,127,v->m.high=v);number(box,"单侧倾斜角度 (5–180°)",(int)m.range,5,180,v->m.range=v);number(box,"平滑响应 (1–100%，高=响应更快)",(int)(m.smooth*100),1,100,v->m.smooth=v/100.0);CheckBox enabled=new CheckBox(this);enabled.setText("启用此参数");enabled.setChecked(m.enabled);enabled.setOnCheckedChangeListener((v,b)->{m.enabled=b;m.last=-1;save();});box.addView(enabled);CheckBox reverse=new CheckBox(this);reverse.setText("反向");reverse.setChecked(m.invert);reverse.setOnCheckedChangeListener((v,b)->{m.invert=b;m.filtered=Double.NaN;save();});box.addView(reverse);TextView label=text("手动值："+m.manual,14);box.addView(label);SeekBar manual=new SeekBar(this);manual.setMax(127);manual.setProgress(m.manual);manual.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){save();}public void onProgressChanged(SeekBar b,int p,boolean user){m.manual=p;label.setText("手动值："+p);}});box.addView(manual);box.addView(btn("删除此控制器",()->{maps.remove(m);save();render();}));cards.addView(box);}}
- EditText field(String label,String initial,java.util.function.Consumer<String> setter,boolean numeric){EditText e=new EditText(this);e.setSingleLine();if(numeric)e.setInputType(2);e.setText(initial);e.setHint(label);e.setContentDescription(label);e.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int f){}public void onTextChanged(CharSequence s,int a,int b,int c){setter.accept(s.toString());}public void afterTextChanged(Editable e){}});return e;}
- void number(LinearLayout box,String label,int initial,int lo,int hi,java.util.function.IntConsumer setter){box.addView(text(label,12));box.addView(field(label,""+initial,s->{try{int v=Integer.parseInt(s);if(v<lo||v>hi)return;setter.accept(v);for(Mapping m:maps){m.last=-1;m.filtered=Double.NaN;}save();}catch(NumberFormatException ignored){}},true));}
- void save(){try{JSONArray a=new JSONArray();for(Mapping m:maps)a.put(m.json());prefs.edit().putString("maps",a.toString()).apply();}catch(Exception e){status.setText("保存失败："+e.getMessage());}}
- void load(){try{String raw=prefs.getString("maps",null);if(raw==null){maps.add(new Mapping());return;}JSONArray a=new JSONArray(raw);for(int i=0;i<Math.min(32,a.length());i++)maps.add(Mapping.parse(a.getJSONObject(i)));}catch(Exception e){maps.add(new Mapping());}}
- @Override public void onResume(){super.onResume();active=true;if(rotation!=null)sensors.registerListener(this,rotation,10000);else status.setText("无姿态传感器，请用手动滑块");clock.post(tick);}
- @Override public void onPause(){active=false;clock.removeCallbacks(tick);sensors.unregisterListener(this);if(ble!=null)ble.stop();if(rtp!=null)rtp.disconnect();save();super.onPause();}
- @Override public void onSensorChanged(SensorEvent e){float[]r=new float[9],o=new float[3];SensorManager.getRotationMatrixFromVector(r,e.values);SensorManager.getOrientation(r,o);pitch=(float)Math.toDegrees(o[1]);roll=(float)Math.toDegrees(o[2]);}
- @Override public void onAccuracyChanged(Sensor s,int a){}
- @Override public void onDestroy(){if(ble!=null)ble.stop();if(rtp!=null)rtp.disconnect();super.onDestroy();}
- void rtpDialog(){LinearLayout x=column();x.setPadding(40,10,40,0);EditText host=new EditText(this);host.setHint("电脑 IP，例如 192.168.1.20");host.setSingleLine();x.addView(host);EditText port=new EditText(this);port.setHint("AppleMIDI 控制端口，默认 5004");port.setText("5004");port.setInputType(2);port.setSingleLine();x.addView(port);new AlertDialog.Builder(this).setTitle("连接 Wi-Fi RTP-MIDI").setMessage("Windows 安装 rtpMIDI 后创建会话；macOS 在音频 MIDI 设置中开启 Network Session。输入电脑局域网 IP 和控制端口。通常数据端口为控制端口+1。").setView(x).setNegativeButton("取消",null).setPositiveButton("连接",(d,w)->{try{ble.stop();if(!rtp.connect(host.getText().toString(),Integer.parseInt(port.getText().toString())))status.setText("RTP-MIDI 连接失败");else status.setText("RTP-MIDI 正在握手…");}catch(Exception e){status.setText("请填写有效 IP 和端口");}}).show();}
+    private static final String APP_URL = "https://glissway.local/index.html";
+    private static final int BLUETOOTH_PERMISSION_REQUEST = 9;
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final boolean[] bentChannels = new boolean[17];
+    private final float[] rotationMatrix = new float[9];
+    private final float[] screenMatrix = new float[9];
+    private final float[] orientation = new float[3];
+    private SensorManager sensors;
+    private Sensor rotation;
+    private BleMidi ble;
+    private RtpMidi rtp;
+    private WebView web;
+    private FrameLayout content;
+    private boolean pageReady;
+    private boolean foreground;
+    private boolean destroyed;
+    private boolean sensorRegistered;
+    private boolean changingTransport;
+    private int lifecycleVersion;
+    private int finishedPauseVersion = -1;
+    private int transportVersion;
+    private float roll;
+    private float pitch;
+    private String connectionStatus = "未启动 MIDI";
+    private String lastConnectionPayload = "";
+    private String legacyConfig = "null";
+
+    private final Runnable connectionPoll = new Runnable() {
+        @Override public void run() {
+            if (!foreground || destroyed) return;
+            publishConnection(false);
+            main.postDelayed(this, 100);
+        }
+    };
+
+    private final BroadcastReceiver wallpaperChanged = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) { publishTheme(); }
+    };
+
+    @Override public void onCreate(Bundle state) {
+        super.onCreate(state);
+        legacyConfig = readLegacyConfig();
+        sensors = (SensorManager) getSystemService(SENSOR_SERVICE);
+        rotation = sensors.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR);
+        if (rotation == null) rotation = sensors.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
+        ble = new BleMidi(this, this::onTransportStatus);
+        rtp = new RtpMidi(this::onTransportStatus);
+        buildWebView();
+        IntentFilter wallpaperFilter = new IntentFilter(Intent.ACTION_WALLPAPER_CHANGED);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(wallpaperChanged, wallpaperFilter, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(wallpaperChanged, wallpaperFilter);
+    }
+
+    private void buildWebView() {
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        getWindow().setStatusBarColor(Color.TRANSPARENT);
+        getWindow().setNavigationBarColor(Color.TRANSPARENT);
+        content = new FrameLayout(this);
+        if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
+        else getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        content.setOnApplyWindowInsetsListener((view, insets) -> {
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars()
+                        | WindowInsets.Type.displayCutout() | WindowInsets.Type.ime());
+                view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            } else {
+                view.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                        insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+            }
+            return insets;
+        });
+        web = new WebView(this);
+        WebSettings settings = web.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setAllowFileAccess(false);
+        settings.setAllowContentAccess(false);
+        settings.setGeolocationEnabled(false);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        web.addJavascriptInterface(new MidiBridge(), "GlisswayMidi");
+        web.setWebViewClient(new WebViewClient() {
+            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                if (APP_URL.equals(url)) view.evaluateJavascript(
+                        "document.documentElement.classList.add('inset-native')", null);
+            }
+
+            @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                String asset = assetFor(uri);
+                if (asset != null) {
+                    try {
+                        WebResourceResponse response = new WebResourceResponse(
+                                asset.endsWith(".js") ? "text/javascript" : "text/html", "UTF-8",
+                                getAssets().open(asset));
+                        response.setResponseHeaders(Collections.singletonMap("Cache-Control", "no-store"));
+                        return response;
+                    } catch (Exception ignored) { }
+                }
+                return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found",
+                        Collections.emptyMap(), new ByteArrayInputStream(new byte[0]));
+            }
+
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                return !"index.html".equals(assetFor(request.getUrl()));
+            }
+
+            @Override public void onPageFinished(WebView view, String url) {
+                if (!APP_URL.equals(url)) return;
+                view.evaluateJavascript("document.documentElement.classList.add('inset-native');"
+                        + "window.dispatchEvent(new Event('resize'));", null);
+                pageReady = true;
+                publishTheme();
+                publishConnection(true);
+                publishPose();
+                callUi(foreground ? "resume" : "suspend", "");
+            }
+        });
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
+                if (isFinishing()) { result.cancel(); return true; }
+                new AlertDialog.Builder(MainActivity.this).setTitle("Glissway").setMessage(message)
+                        .setPositiveButton(android.R.string.ok, (dialog, which) -> result.confirm())
+                        .setOnCancelListener(dialog -> result.cancel()).show();
+                return true;
+            }
+
+            @Override public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
+                if (isFinishing()) { result.cancel(); return true; }
+                new AlertDialog.Builder(MainActivity.this).setTitle("Glissway").setMessage(message)
+                        .setPositiveButton(android.R.string.ok, (dialog, which) -> result.confirm())
+                        .setNegativeButton(android.R.string.cancel, (dialog, which) -> result.cancel())
+                        .setOnCancelListener(dialog -> result.cancel()).show();
+                return true;
+            }
+
+            @Override public boolean onJsPrompt(WebView view, String url, String message, String initial, JsPromptResult result) {
+                if (isFinishing()) { result.cancel(); return true; }
+                EditText input = new EditText(MainActivity.this);
+                input.setSingleLine();
+                input.setText(initial);
+                new AlertDialog.Builder(MainActivity.this).setTitle("Glissway").setMessage(message).setView(input)
+                        .setPositiveButton(android.R.string.ok, (dialog, which) -> result.confirm(input.getText().toString()))
+                        .setNegativeButton(android.R.string.cancel, (dialog, which) -> result.cancel())
+                        .setOnCancelListener(dialog -> result.cancel()).show();
+                return true;
+            }
+        });
+        content.addView(web, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(content);
+        content.requestApplyInsets();
+        web.loadUrl(APP_URL);
+    }
+
+    private static String assetFor(Uri uri) {
+        if (!"https".equals(uri.getScheme()) || !"glissway.local".equals(uri.getHost())
+                || (uri.getPort() != -1 && uri.getPort() != 443)) return null;
+        if ("/index.html".equals(uri.getPath())) return "index.html";
+        if ("/glissway-presets.js".equals(uri.getPath())) return "glissway-presets.js";
+        return null;
+    }
+
+    private void callUi(String method, String argument) {
+        if (pageReady && !destroyed) web.evaluateJavascript(
+                "window.Glissway&&window.Glissway." + method + "&&window.Glissway." + method + "(" + argument + ")", null);
+    }
+
+    private void onTransportStatus(String message) {
+        main.post(() -> {
+            if (destroyed) return;
+            connectionStatus = message;
+            publishConnection(true);
+        });
+    }
+
+    private void publishConnection(boolean force) {
+        if (!pageReady || destroyed) return;
+        try {
+            boolean bleReady = ble.connected();
+            boolean rtpReady = rtp.connected();
+            JSONObject state = new JSONObject();
+            state.put("connected", bleReady || rtpReady);
+            state.put("bleConnected", bleReady);
+            state.put("rtpConnected", rtpReady);
+            state.put("label", bleReady && rtpReady ? "BLE MIDI + RTP-MIDI" : rtpReady ? "RTP-MIDI" : bleReady ? "BLE MIDI" : "MIDI");
+            state.put("status", connectionStatus);
+            String payload = state.toString();
+            if (force || !lastConnectionPayload.equals(payload)) {
+                lastConnectionPayload = payload;
+                callUi("setConnection", payload);
+            }
+        } catch (Exception ignored) { }
+    }
+
+    private void publishPose() {
+        if (rotation == null) return;
+        callUi("setPose", String.format(Locale.US, "{roll:%.5f,pitch:%.5f}", roll, pitch));
+    }
+
+    private boolean hasBluetoothPermissions() {
+        return Build.VERSION.SDK_INT < 31 || (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+                && checkSelfPermission(Manifest.permission.BLUETOOTH_ADVERTISE) == PackageManager.PERMISSION_GRANTED);
+    }
+
+    private void startBle() {
+        if (!hasBluetoothPermissions()) {
+            requestPermissions(new String[] { Manifest.permission.BLUETOOTH_CONNECT,
+                    Manifest.permission.BLUETOOTH_ADVERTISE }, BLUETOOTH_PERMISSION_REQUEST);
+            return;
+        }
+        switchTransport(() -> {
+            connectionStatus = "正在启动 BLE MIDI…";
+            ble.start();
+            publishConnection(true);
+        });
+    }
+
+    /** Let the existing RTP worker drain a final center message before disconnecting. */
+    private void switchTransport(Runnable next) {
+        int operation = ++transportVersion;
+        changingTransport = true;
+        resetBends();
+        boolean drainRtp = rtp.connected();
+        Runnable finish = () -> {
+            if (destroyed || operation != transportVersion) return;
+            ble.stop();
+            rtp.disconnect();
+            changingTransport = false;
+            for (int channel = 1; channel <= 16; channel++) bentChannels[channel] = false;
+            if (next != null && foreground) next.run();
+            else { connectionStatus = "MIDI 已停止"; publishConnection(true); }
+        };
+        if (drainRtp) main.postDelayed(finish, 60);
+        else finish.run();
+    }
+
+    private void resetBends() {
+        for (int channel = 1; channel <= 16; channel++) {
+            if (!bentChannels[channel]) continue;
+            if (rtp.connected()) rtp.sendPitchBend(channel, 8192);
+            if (ble.connected()) ble.sendPitchBend(channel, 8192);
+            bentChannels[channel] = false;
+        }
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grants) {
+        super.onRequestPermissionsResult(requestCode, permissions, grants);
+        if (requestCode != BLUETOOTH_PERMISSION_REQUEST) return;
+        if (hasBluetoothPermissions()) startBle();
+        else { connectionStatus = "请授予蓝牙连接和广播权限"; publishConnection(true); }
+    }
+
+    private final class MidiBridge {
+        @JavascriptInterface public boolean sendCC(int channel, int cc, int value) {
+            if (channel < 1 || channel > 16 || cc < 0 || cc > 127 || value < 0 || value > 127) return false;
+            return onMain(() -> {
+                if (changingTransport || destroyed) return false;
+                boolean available = false, accepted = true;
+                if (ble.connected()) { available = true; accepted &= ble.send(channel, cc, value); }
+                if (rtp.connected()) { available = true; accepted &= rtp.send(channel, cc, value); }
+                return available && accepted;
+            });
+        }
+
+        @JavascriptInterface public boolean sendPitchBend(int channel, int value) {
+            if (channel < 1 || channel > 16 || value < 0 || value > 16383) return false;
+            return onMain(() -> {
+                if (changingTransport || destroyed) return false;
+                boolean available = false, accepted = true, anyAccepted = false;
+                if (ble.connected()) {
+                    available = true;
+                    boolean sent = ble.sendPitchBend(channel, value);
+                    accepted &= sent;
+                    anyAccepted |= sent;
+                }
+                if (rtp.connected()) {
+                    available = true;
+                    boolean sent = rtp.sendPitchBend(channel, value);
+                    accepted &= sent;
+                    anyAccepted |= sent;
+                }
+                // A partial delivery can still leave a receiver bent. Keep its reset pending.
+                if (value != 8192 && anyAccepted) bentChannels[channel] = true;
+                else if (value == 8192 && available && accepted) bentChannels[channel] = false;
+                return available && accepted;
+            });
+        }
+
+        @JavascriptInterface public void startBle() { main.post(() -> { if (foreground) MainActivity.this.startBle(); }); }
+        @JavascriptInterface public void stopMidi() { main.post(() -> switchTransport(null)); }
+        @JavascriptInterface public void connectRtp(String host, int port) {
+            if (host == null || host.trim().isEmpty() || host.length() > 253 || port < 1 || port > 65534) {
+                main.post(() -> { connectionStatus = "请填写有效 IP 或主机名和端口（1–65534）"; publishConnection(true); });
+                return;
+            }
+            main.post(() -> {
+                if (!foreground) return;
+                switchTransport(() -> {
+                    connectionStatus = "RTP-MIDI 正在握手…";
+                    rtp.connect(host.trim(), port);
+                    publishConnection(true);
+                });
+            });
+        }
+        @JavascriptInterface public void requestState() { main.post(() -> { publishTheme(); publishConnection(true); publishPose(); }); }
+        @JavascriptInterface public boolean enableSensor() {
+            main.post(() -> {
+                registerSensor();
+                if (rotation == null) {
+                    connectionStatus = "此设备没有姿态传感器，可使用 Edit 手动推子";
+                    publishConnection(true);
+                }
+            });
+            return rotation != null;
+        }
+        @JavascriptInterface public String getLegacyConfig() { return legacyConfig; }
+    }
+
+    private boolean onMain(Callable<Boolean> operation) {
+        if (destroyed) return false;
+        FutureTask<Boolean> task = null;
+        try {
+            if (Looper.myLooper() == Looper.getMainLooper()) return operation.call();
+            task = new FutureTask<>(operation);
+            main.post(task);
+            return task.get(1200, TimeUnit.MILLISECONDS);
+        } catch (Exception exception) {
+            if (task != null) task.cancel(false);
+            onTransportStatus("MIDI 发送失败：" + exception.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    /** One-time import is committed by the UI only after local preset storage succeeds. */
+    private String readLegacyConfig() {
+        SharedPreferences preferences = getSharedPreferences("config", MODE_PRIVATE);
+        String raw = preferences.getString("maps", null);
+        if (raw == null) return "null";
+        try {
+            JSONArray previous = new JSONArray(raw);
+            JSONArray imported = new JSONArray();
+            for (int index = 0; index < Math.min(32, previous.length()); index++) {
+                JSONObject old = previous.getJSONObject(index);
+                JSONObject mapping = new JSONObject();
+                mapping.put("name", old.optString("name", "Controller"));
+                mapping.put("output", "cc");
+                mapping.put("ch", old.optInt("channel", 1));
+                mapping.put("cc", old.optInt("cc", 1));
+                mapping.put("lo", old.optInt("low", 0));
+                mapping.put("hi", old.optInt("high", 127));
+                mapping.put("axis", old.optInt("axis", 0));
+                mapping.put("manual", old.optInt("manual", 64));
+                mapping.put("v", old.optInt("manual", 64));
+                mapping.put("range", old.optDouble("range", 64));
+                mapping.put("on", old.optBoolean("enabled", true));
+                mapping.put("inv", old.optBoolean("invert", false));
+                mapping.put("sensitivity", 1);
+                imported.put(mapping);
+            }
+            JSONObject result = new JSONObject();
+            result.put("maps", imported);
+            result.put("selX", 0);
+            result.put("selY", imported.length() > 1 ? 1 : 0);
+            return result.toString();
+        } catch (Exception ignored) { return "null"; }
+    }
+
+    private int tone(String family, int tone, int fallback) {
+        if (Build.VERSION.SDK_INT < 31) return fallback;
+        int id = getResources().getIdentifier("system_" + family + "_" + tone, "color", "android");
+        return id == 0 ? fallback : getColor(id);
+    }
+
+    private static String hex(int value) { return String.format(Locale.US, "#%06x", value & 0xffffff); }
+
+    private JSONObject palette(boolean dark) throws Exception {
+        JSONObject colors = new JSONObject();
+        colors.put("background", hex(tone("neutral1", dark ? 900 : 10, dark ? 0xff141719 : 0xfff8fafb)));
+        colors.put("surface", hex(tone("neutral1", dark ? 800 : 50, dark ? 0xff252a2d : 0xffedf1f4)));
+        colors.put("bubble", hex(tone("accent2", dark ? 500 : 400, dark ? 0xff657b80 : 0xff899da2)));
+        colors.put("onSurface", hex(tone("neutral1", dark ? 50 : 900, dark ? 0xffedf1f4 : 0xff1c2225)));
+        colors.put("onSurfaceVariant", hex(tone("neutral2", dark ? 200 : 700, dark ? 0xffbcc8ce : 0xff46535a)));
+        colors.put("onBubble", dark ? "#ffffff" : "#ffffff");
+        colors.put("onBubbleVariant", dark ? "#ffffff" : "#152124");
+        colors.put("primary", hex(tone("accent1", dark ? 200 : 600, dark ? 0xffb1cbd3 : 0xff486873)));
+        colors.put("onPrimary", hex(tone("accent1", dark ? 800 : 0, dark ? 0xff18333c : 0xffffffff)));
+        colors.put("secondary", hex(tone("accent2", dark ? 200 : 600, dark ? 0xffb9cad0 : 0xff526970)));
+        colors.put("primaryContainer", hex(tone("accent1", dark ? 700 : 100, dark ? 0xff304e58 : 0xffd4e7ee)));
+        colors.put("onPrimaryContainer", hex(tone("accent1", dark ? 100 : 900, dark ? 0xffd4e7ee : 0xff102d37)));
+        colors.put("outline", hex(tone("neutral2", dark ? 400 : 500, dark ? 0xff8c9ca5 : 0xff71838e)));
+        return colors;
+    }
+
+    private void publishTheme() {
+        if (destroyed || web == null) return;
+        boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        int background = tone("neutral1", dark ? 900 : 10, dark ? 0xff141719 : 0xfff8fafb);
+        content.setBackgroundColor(background);
+        web.setBackgroundColor(background);
+        if (Build.VERSION.SDK_INT >= 30 && getWindow().getInsetsController() != null) {
+            getWindow().getInsetsController().setSystemBarsAppearance(dark ? 0
+                            : android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                            | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
+                    android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                            | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+        } else {
+            int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+            if (!dark) flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            getWindow().getDecorView().setSystemUiVisibility(flags);
+        }
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("light", palette(false));
+            payload.put("dark", palette(true));
+            callUi("applyTheme", payload.toString());
+        } catch (Exception ignored) { }
+    }
+
+    private void registerSensor() {
+        if (!foreground || sensorRegistered || rotation == null) return;
+        sensorRegistered = sensors.registerListener(this, rotation, 10000);
+    }
+
+    @Override public void onSensorChanged(SensorEvent event) {
+        if (!foreground || destroyed) return;
+        SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values);
+        int x = SensorManager.AXIS_X, y = SensorManager.AXIS_Y;
+        switch (getWindowManager().getDefaultDisplay().getRotation()) {
+            case Surface.ROTATION_90: x = SensorManager.AXIS_Y; y = SensorManager.AXIS_MINUS_X; break;
+            case Surface.ROTATION_180: x = SensorManager.AXIS_MINUS_X; y = SensorManager.AXIS_MINUS_Y; break;
+            case Surface.ROTATION_270: x = SensorManager.AXIS_MINUS_Y; y = SensorManager.AXIS_X; break;
+            default: break;
+        }
+        SensorManager.remapCoordinateSystem(rotationMatrix, x, y, screenMatrix);
+        SensorManager.getOrientation(screenMatrix, orientation);
+        pitch = (float) Math.toDegrees(orientation[1]);
+        roll = (float) Math.toDegrees(orientation[2]);
+        publishPose();
+    }
+
+    @Override public void onAccuracyChanged(Sensor sensor, int accuracy) { }
+
+    @Override public void onConfigurationChanged(Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        publishTheme();
+        content.requestApplyInsets();
+    }
+
+    @Override public void onResume() {
+        super.onResume();
+        foreground = true;
+        ++lifecycleVersion;
+        registerSensor();
+        main.removeCallbacks(connectionPoll);
+        main.post(connectionPoll);
+        if (web != null) web.onResume();
+        publishTheme();
+        callUi("resume", "");
+    }
+
+    @Override public void onPause() {
+        foreground = false;
+        int version = ++lifecycleVersion;
+        main.removeCallbacks(connectionPoll);
+        sensors.unregisterListener(this);
+        sensorRegistered = false;
+        Runnable finishPause = () -> {
+            if (version != lifecycleVersion || version == finishedPauseVersion || foreground || destroyed) return;
+            finishedPauseVersion = version;
+            switchTransport(null);
+            if (web != null) web.onPause();
+        };
+        if (pageReady) {
+            web.evaluateJavascript("window.Glissway&&window.Glissway.suspend&&window.Glissway.suspend()",
+                    result -> finishPause.run());
+            main.postDelayed(finishPause, 250);
+        } else finishPause.run();
+        super.onPause();
+    }
+
+    @Override public void onDestroy() {
+        boolean drainOutput = ble.connected() || rtp.connected();
+        resetBends();
+        destroyed = true;
+        main.removeCallbacksAndMessages(null);
+        // Destruction can overtake onPause's asynchronous UI flush. Give the existing
+        // RTP worker and Bluetooth stack time to dispatch their final center message.
+        Runnable closeTransports = () -> { ble.stop(); rtp.disconnect(); };
+        if (drainOutput) main.postDelayed(closeTransports, 60);
+        else closeTransports.run();
+        try { unregisterReceiver(wallpaperChanged); } catch (Exception ignored) { }
+        if (web != null) { web.removeJavascriptInterface("GlisswayMidi"); web.destroy(); }
+        super.onDestroy();
+    }
 }

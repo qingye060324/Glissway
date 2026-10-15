@@ -6,3 +6,6 @@ local.properties
 *.iml
 *.jks
 *.keystore
+
+.DS_Store
+.claude/

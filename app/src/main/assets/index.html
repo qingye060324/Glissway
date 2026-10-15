@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f8f9fa" id="themeColor">
+<title>Glissway</title>
+<script>
+// Mark native inset ownership before the first layout; the host also marks page loads.
+if (window.GlisswayMidi) document.documentElement.classList.add('inset-native');
+</script>
+<style>
+:root {
+  --color-background:#f8f9fa; --color-surface:#edf0f2; --color-bubble:#a7b1b5;
+  --color-on-surface:#191d1f; --color-on-surface-variant:#505a5e; --color-on-bubble:#ffffff; --color-on-bubble-variant:#172124;
+  --color-primary:#43636c; --color-on-primary:#fff; --color-secondary:#56656a;
+  --color-primary-container:#d1e6ed; --color-on-primary-container:#152e36;
+  --color-outline:#717c80; --color-highlight:#ffffff; --color-shadow:#bcc4c8;
+  --color-glass-edge:#ffffffb3; --color-scrim:#10191e4d;
+  --color-status:#398654; --color-status-halo:#39865426;
+}
+* { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body { margin:0; width:100%; height:100%; overflow:hidden; overscroll-behavior:none; }
+body { font-family:Roboto,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;
+  background:var(--color-surface); color:var(--color-on-surface); }
+button,input,select { font:inherit; }
+button { cursor:pointer; color:inherit; }
+button:focus-visible,input:focus-visible,select:focus-visible { outline:2px solid var(--color-primary); outline-offset:3px; }
+button { -webkit-user-select:none; user-select:none; }
+[hidden] { display:none !important; }
+.phone { width:100%; height:100%; height:100dvh; }
+.screen { position:relative; width:100%; height:100%; overflow:hidden; isolation:isolate;
+  background:var(--color-background); color:var(--color-on-surface); user-select:none;
+  --safe-top:env(safe-area-inset-top,0px); --safe-bottom:env(safe-area-inset-bottom,0px); }
+html.inset-native .screen { --safe-top:0px; --safe-bottom:0px; }
+.raised,.raised-sm { background:var(--color-surface); border:1px solid var(--color-glass-edge);
+  box-shadow:4px 5px 11px var(--color-shadow),-3px -3px 9px var(--color-highlight),inset 0 1px 1px var(--color-highlight); }
+.inset,.inset-sm { background:var(--color-surface);
+  box-shadow:inset 3px 3px 7px var(--color-shadow),inset -3px -3px 7px var(--color-highlight); }
+.glass { background:var(--color-surface); border:1px solid var(--color-glass-edge);
+  box-shadow:inset 0 1px 1px var(--color-highlight),inset 0 -1px 2px var(--color-shadow),0 5px 14px var(--color-shadow); }
+.top { position:absolute; top:calc(var(--safe-top) + 28px); left:0; right:0; display:flex;
+  justify-content:center; align-items:center; z-index:20; pointer-events:none; }
+.seg { position:relative; display:flex; border-radius:24px; padding:4px; pointer-events:auto; }
+.seg::before { content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; opacity:0;
+  box-shadow:0 0 8px 2px var(--color-status-halo),0 0 18px 5px var(--color-status-halo),0 0 28px 7px var(--color-status-halo);
+  transition:opacity .18s ease; }
+.seg.connected::before { opacity:1; }
+@media (prefers-reduced-motion:reduce) { .seg::before { transition:none; } }
+.seg button { border:0; background:none; font-weight:650; font-size:15px; padding:8px 22px; border-radius:19px; }
+.seg button.on { background:var(--color-background); box-shadow:0 2px 7px var(--color-shadow); }
+.settings-button { position:absolute; right:14px; top:calc(var(--safe-top) + 35px); z-index:21;
+  border:0; border-radius:50%; padding:7px; background:transparent; color:var(--color-on-surface-variant); }
+.settings-button svg { width:19px; height:19px; display:block; fill:none; stroke:currentColor; stroke-width:1.6; }
+.view { position:absolute; inset:0; }
+.ib { width:44px; height:44px; flex:none; border-radius:50%; border:0; display:grid; place-items:center; }
+.ib:active,.chip:active { box-shadow:inset 3px 3px 7px var(--color-shadow),inset -3px -3px 7px var(--color-highlight); }
+.ib svg { width:22px; height:22px; stroke:currentColor; fill:none; stroke-width:1.8; }
+/* The bubble is ONLY this opaque SVG fill. No filter, gradient, shadow or CSS motion. */
+#bubbleSvg { position:absolute; inset:0; width:100%; height:100%; touch-action:none; overflow:hidden; }
+#bubblePath { fill:var(--color-bubble); }
+.readouts { fill:var(--readout-ink,var(--color-on-surface)); font-weight:850; font-variant-numeric:tabular-nums; letter-spacing:-2px; }
+.readout-label { fill:var(--label-ink,var(--color-on-surface-variant)); font-weight:750; letter-spacing:1.4px; }
+/* CSS variables inherit through SVG <use>'s shadow tree; descendant selectors do not. */
+.inside { --readout-ink:var(--color-on-bubble); --label-ink:var(--color-on-bubble-variant); }
+.axis { position:absolute; top:calc(var(--safe-top) + 86px); left:0; right:0; display:flex;
+  justify-content:center; gap:10px; pointer-events:none; }
+.pill { font-size:11px; padding:6px 12px; border-radius:16px; color:var(--color-on-surface-variant); font-variant-numeric:tabular-nums; }
+.pdock { position:absolute; bottom:calc(var(--safe-bottom) + 28px); left:14px; right:14px;
+  display:flex; gap:10px; align-items:center; z-index:5; }
+.chip { flex:1; display:flex; align-items:center; gap:8px; border-radius:29px;
+  padding:9px 10px 9px 7px; text-align:left; min-width:0; min-height:57px; }
+.chip em { font-style:normal; width:32px; height:32px; flex:none; border-radius:50%; display:grid;
+  place-items:center; font-weight:800; font-size:14px; background:var(--color-primary); color:var(--color-on-primary); }
+.chip > span { min-width:0; }
+.chip b { display:block; font-size:10px; letter-spacing:1.05px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.chip small { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:10px; color:var(--color-on-surface-variant); margin-top:3px; }
+.chip[aria-expanded="true"] { background:var(--color-primary-container); color:var(--color-on-primary-container); }
+.hint { position:absolute; top:calc(var(--safe-top) + 104px); left:0; right:0; text-align:center;
+  font-size:12px; color:var(--color-on-surface-variant); }
+.rail { position:absolute; top:calc(var(--safe-top) + 136px); left:0; right:0; bottom:calc(var(--safe-bottom) + 133px);
+  display:flex; gap:22px; padding:14px 28px; overflow-x:auto; scrollbar-width:none; scroll-snap-type:x mandatory; }
+.ctl { flex:none; width:104px; display:flex; flex-direction:column; align-items:center; scroll-snap-align:start; }
+.track { position:relative; width:104px; flex:1; border-radius:52px; cursor:ns-resize; touch-action:none; overflow:hidden; min-height:110px; }
+.fill { position:absolute; left:7px; right:7px; bottom:7px; border-radius:45px; min-height:50px;
+  background:var(--color-primary); box-shadow:inset 0 2px 2px var(--color-highlight); }
+.fill b { position:absolute; top:16px; left:0; right:0; text-align:center; font-weight:800; font-size:20px;
+  color:var(--color-on-primary); font-variant-numeric:tabular-nums; }
+.ctl.off .fill { opacity:.45; }
+.name { margin-top:16px; padding:0; background:none; border:0; font-weight:800; font-size:11px; letter-spacing:1.6px; }
+.sub { font-size:10px; color:var(--color-on-surface-variant); margin-top:3px; }
+.add { flex:none; width:104px; border-radius:52px; color:var(--color-on-surface-variant); font-size:34px; margin-bottom:46px; }
+.dock { position:absolute; bottom:calc(var(--safe-bottom) + 32px); left:50%; transform:translateX(-50%);
+  display:flex; gap:clamp(6px,2.6vw,14px); padding:10px; border-radius:34px; max-width:calc(100% - 20px); }
+.scrim { position:absolute; inset:0; background:var(--color-scrim); z-index:30; }
+.sheet { position:absolute; left:10px; right:10px; bottom:calc(var(--safe-bottom) + 10px); z-index:31;
+  border-radius:30px; padding:20px 18px 24px; max-height:calc(100% - var(--safe-top) - var(--safe-bottom) - 30px);
+  overflow:auto; overscroll-behavior:contain; user-select:text; }
+.sheet h3 { font-size:17px; margin:0 0 14px; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.sheet h4 { margin:18px 0 8px; font-size:13px; }
+.grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.field { border-radius:18px; padding:10px 12px; min-width:0; }
+.field span { display:block; font-size:10px; color:var(--color-on-surface-variant); margin-bottom:4px; letter-spacing:.5px; }
+.field input,.field select { width:100%; min-width:0; font-size:16px; color:var(--color-on-surface);
+  background:transparent; border:0; padding:3px 0; }
+.segaxis { grid-column:1/-1; display:flex; border-radius:18px; padding:4px; }
+.segaxis button { flex:1; border:0; background:none; padding:10px 0; border-radius:14px; font-size:12px; color:var(--color-on-surface-variant); }
+.segaxis button.on { color:var(--color-on-primary-container); background:var(--color-primary-container); }
+.toggle { grid-column:1/-1; display:flex; justify-content:space-between; align-items:center; padding:4px; gap:12px; font-size:13px; }
+input[type="checkbox"],input[type="range"] { accent-color:var(--color-primary); }
+.toggle input { width:20px; height:20px; }
+.pick { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:8px; }
+.pick button,.action { border:0; border-radius:16px; padding:11px 14px; font-weight:650; font-size:11px; }
+.pick button.on,.action { background:var(--color-primary-container); color:var(--color-on-primary-container); }
+.wide { grid-column:1/-1; }
+.note { margin:10px 0; color:var(--color-on-surface-variant); font-size:11px; line-height:1.65; }
+.debug-slider { display:block; margin:16px 0; font-size:13px; }
+.debug-slider input { display:block; width:100%; margin-top:10px; }
+.stats { font-size:11px; font-variant-numeric:tabular-nums; line-height:1.9; color:var(--color-on-surface-variant); }
+.seed-picker { display:flex; align-items:center; gap:10px; font-size:12px; margin-top:12px; }
+.seed-picker input { width:38px; height:32px; border:0; padding:0; background:none; }
+.preset-list { display:grid; gap:8px; margin:14px 0; }
+.preset-row { text-align:left; border-radius:18px; padding:14px; font-size:14px; }
+.preset-row.on { background:var(--color-primary-container); color:var(--color-on-primary-container); }
+.preset-row small { display:block; opacity:.75; margin-top:4px; font-size:11px; }
+.preset-summary { font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
+#presetHint { display:inline-block; margin-top:6px; font-size:10px; }
+button:disabled { opacity:.45; cursor:default; }
+.toast { position:absolute; left:50%; bottom:calc(var(--safe-bottom) + 100px); transform:translateX(-50%);
+  border-radius:20px; padding:9px 15px; background:var(--color-on-surface); color:var(--color-background);
+  font-size:12px; z-index:60; white-space:nowrap; pointer-events:none; }
+@media (min-width:600px) and (min-height:650px) {
+  body { display:grid; place-items:center; }
+  .phone { width:390px; height:min(844px,calc(100dvh - 36px)); padding:8px; border-radius:42px;
+    background:var(--color-on-surface); box-shadow:0 14px 40px var(--color-shadow); }
+  .screen { border-radius:34px; }
+}
+@media (max-width:350px) {
+  .pdock { gap:7px; left:10px; right:10px; }
+  .chip { padding-right:6px; gap:5px; }.chip b { font-size:9px; letter-spacing:.5px; }
+  .seg button { padding:8px 18px; }
+  .dock { gap:6px; padding:8px; }.dock .ib { width:42px; height:42px; }
+}
+@media (orientation:landscape) and (max-height:600px) {
+  .top { top:calc(var(--safe-top) + 12px); }.axis { top:calc(var(--safe-top) + 64px); }
+  .settings-button { top:calc(var(--safe-top) + 18px); }
+  .pdock { bottom:calc(var(--safe-bottom) + 14px); left:20%; right:20%; }
+  .rail { top:90px; bottom:95px; }.hint { top:72px; }.dock { bottom:14px; }
+}
+</style>
+</head>
+<body>
+<div class="phone"><main class="screen" id="screen" aria-label="Glissway 控制器">
+  <div class="top">
+    <div class="seg glass" id="modeCapsule" role="group" aria-label="Edit / Live · MIDI 未连接">
+      <button id="bEdit" aria-pressed="false">Edit</button><button id="bLive" class="on" aria-pressed="true">Live</button>
+    </div>
+  </div>
+  <button class="settings-button" id="settings" title="姿态与主题设置" aria-label="姿态与主题设置">
+    <svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="var(--color-background)"/><circle cx="15" cy="17" r="3" fill="var(--color-background)"/></svg>
+  </button>
+  <section class="view" id="live" aria-label="Live">
+    <svg id="bubbleSvg" xmlns="http://www.w3.org/2000/svg" aria-label="姿态气泡与 MIDI 输出">
+      <defs>
+        <clipPath id="screenClip" clipPathUnits="userSpaceOnUse"><rect id="screenBounds"/></clipPath>
+        <clipPath id="bubbleClip" clipPathUnits="userSpaceOnUse"><path id="clipContour"/></clipPath>
+      </defs>
+      <g clip-path="url(#screenClip)">
+      <path id="bubblePath"/>
+      <g id="readoutContent" text-anchor="middle">
+        <text class="readouts" id="valueX">50%</text><text class="readouts" id="valueY">50%</text>
+        <text class="readout-label" id="labelX">X · DYNAMICS</text><text class="readout-label" id="labelY">Y · VIBRATO</text>
+      </g>
+      <g class="inside" clip-path="url(#bubbleClip)" aria-hidden="true"><use href="#readoutContent"/></g>
+      </g>
+    </svg>
+    <div class="axis"><span class="pill inset-sm" id="pRoll">Roll 0.0°</span><span class="pill inset-sm" id="pPitch">Pitch 0.0°</span></div>
+    <div class="pdock">
+      <button class="chip raised-sm" id="asX" aria-expanded="false"><em>X</em><span><b id="xName">DYNAMICS</b><small id="xSub">CC 1 · 左右倾斜</small></span></button>
+      <button class="chip raised-sm" id="asY" aria-expanded="false"><em>Y</em><span><b id="yName">VIBRATO</b><small id="ySub">CC 21 · 前后倾斜</small></span></button>
+      <button class="ib raised-sm" id="calib" title="当前姿态归零" aria-label="当前姿态归零"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
+    </div>
+  </section>
+  <section class="view" id="edit" hidden aria-label="Edit">
+    <div class="hint">上下拖动推子 · 点名称编辑映射<br><span id="presetHint"></span></div><div class="rail" id="rail"></div>
+    <div class="dock glass">
+      <button class="ib raised-sm" id="mapList" title="映射列表" aria-label="映射列表"><svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg></button>
+      <button class="ib raised-sm" id="connect" title="MIDI 连接" aria-label="MIDI 连接"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></button>
+      <button class="ib raised-sm" id="calib2" title="当前姿态归零" aria-label="当前姿态归零"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
+      <button class="ib raised-sm" id="presets" title="Presets" aria-label="Presets"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"/></svg></button>
+      <button class="ib raised-sm" id="help" title="帮助" aria-label="帮助"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01"/></svg></button>
+    </div>
+  </section>
+  <div id="sheetWrap" hidden><div class="scrim" id="scrim"></div><section class="sheet glass" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" tabindex="-1"></section></div>
+  <div class="toast" id="toast" hidden role="status"></div>
+</main></div>
+<script src="glissway-presets.js"></script>
+<script>
+'use strict';
+/* Browser UI / Android WebView contract (no third-party dependencies).
+   Glissway.applyTheme({light:{...roles},dark:{...roles},mode:'system'})
+   Roles: background,surface,bubble,onSurface,onSurfaceVariant,onBubble,onBubbleVariant,primary,
+          onPrimary,secondary,primaryContainer,onPrimaryContainer,outline.
+   Native resolves Android 12+ dynamicLightColorScheme / dynamicDarkColorScheme,
+   including its secondary/neutralVariant tone for bubble, then sends #RRGGBB.
+   Re-send on wallpaper/UI-mode changes. HTML cannot read Android Monet itself.
+   Glissway.setPose({roll:degrees,pitch:degrees}) // raw, CURRENT screen axes
+   Glissway.setDeviceOrientation({beta:degrees,gamma:degrees,screenAngle:degrees})
+   Glissway.setConnection({connected:true,label:'BLE MIDI'})
+   Native window.GlisswayMidi.sendCC(channel,cc,value), sendPitchBend(channel,value).
+   Events: 'glissway-midi' detail={channel,cc,value}; 'glissway-pose' detail=metrics.
+   Pose solver has NO history, velocity, spring, interpolation or temporal filter.
+*/
+const $ = s => document.querySelector(s);
+const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+const rad = v => v*Math.PI/180;
+const deg = v => v*180/Math.PI;
+const finite = v => typeof v==='number' && Number.isFinite(v);
+const AX = ['ROLL','PITCH','MANUAL'];
+const defaults = [
+  {name:'DYNAMICS',cc:1,ch:1,axis:0,v:64,lo:0,hi:127,range:45,inv:false,on:true},
+  {name:'VIBRATO',cc:21,ch:1,axis:1,v:64,lo:0,hi:127,range:35,inv:false,on:true},
+  {name:'EXPRESSION',cc:11,ch:1,axis:1,v:70,lo:0,hi:127,range:60,inv:false,on:true},
+  {name:'REVERB',cc:91,ch:1,axis:2,v:58,lo:0,hi:127,range:64,inv:false,on:false}
+];
+const storageKey='glissway-settings';
+let saved=null,migrationNotice='';
+try {
+  saved=JSON.parse(localStorage.getItem(storageKey));
+  // The only retired brand token is this one-time storage lookup; keep user settings on upgrade.
+  if(!saved) {
+    const legacyKey='tilt-midi-nuectrl-v4',raw=localStorage.getItem(legacyKey);
+    if(raw) {
+      saved=JSON.parse(raw);localStorage.setItem(storageKey,raw);
+      localStorage.setItem('glissway-settings-migration-backup',raw);localStorage.removeItem(legacyKey);
+    } else {
+      const rawNative=window.GlisswayMidi?.getLegacyConfig();
+      if(rawNative&&rawNative!=='null')saved=JSON.parse(rawNative);
+    }
+  }
+} catch(error) { migrationNotice='旧配置未能读取；原数据仍保留。'; }
+const newMapId=()=>globalThis.crypto?.randomUUID?.()||'map-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
+function cleanMap(m) {
+  if(!m||typeof m!=='object')throw new Error('无效控制器');
+  const output=m.output==='pitchbend'?'pitchbend':'cc',max=output==='pitchbend'?16383:127;
+  const number=(v,fallback,lo,hi)=>clamp(Number.isFinite(+v)?+v:fallback,lo,hi);
+  const manual=Math.round(number(m.manual??m.v,output==='pitchbend'?8192:64,0,max));
+  return {id:typeof m.id==='string'&&m.id?m.id:newMapId(),name:String(m.name||'CTRL').slice(0,24),output,
+    cc:Math.round(number(m.cc,1,0,127)),ch:Math.round(number(m.ch,1,1,16)),axis:Math.round(number(m.axis,0,0,2)),
+    manual,v:manual,lo:Math.round(number(m.lo,0,0,127)),hi:Math.round(number(m.hi,127,0,127)),
+    range:number(m.range,45,1,180),sensitivity:number(m.sensitivity,1,.1,4),inv:!!m.inv,on:m.on!==false};
+}
+function cleanConfig(value) {
+  if(!value||!Array.isArray(value.maps)||!value.maps.length||value.maps.length>32)throw new Error('无效预设映射');
+  const result=value.maps.map(cleanMap),ids=new Set(),bends=new Set();
+  for(const m of result) {
+    if(ids.has(m.id))m.id=newMapId();ids.add(m.id);
+    if(m.on&&m.output==='pitchbend') {
+      if(bends.has(m.ch))throw new Error('Pitch Bend 通道冲突：请使用不同 MIDI 通道。');bends.add(m.ch);
+    }
+  }
+  return {maps:result.map(({v,...m})=>m),selX:clamp(Math.round(+value.selX||0),0,result.length-1),
+    selY:clamp(Math.round(+(value.selY??1)||0),0,result.length-1),cfg:{
+      maxAngle:clamp(+value.cfg?.maxAngle||45,5,85),sensitivity:clamp(+value.cfg?.sensitivity||1,.25,2.5),
+      invertX:!!value.cfg?.invertX,invertY:!!value.cfg?.invertY}};
+}
+let maps;
+try { maps=(Array.isArray(saved?.maps)&&saved.maps.length?saved.maps.slice(0,32):defaults).map(cleanMap); }
+catch(error) {
+  try { if(saved)localStorage.setItem('glissway-settings-recovery',JSON.stringify(saved)); } catch (_) {}
+  maps=defaults.map(cleanMap);migrationNotice='旧映射无效；原数据已保留，请检查迁移备份。';
+}
+let selX=clamp(saved?.selX||0,0,maps.length-1),selY=clamp(saved?.selY??1,0,maps.length-1);
+const cfg={maxAngle:clamp(saved?.cfg?.maxAngle||45,5,85),sensitivity:clamp(saved?.cfg?.sensitivity||1,.25,2.5),
+  invertX:!!saved?.cfg?.invertX,invertY:!!saved?.cfg?.invertY};
+try { restoreConfig({maps,selX,selY,cfg}); }
+catch(error) {
+  try { if(saved)localStorage.setItem('glissway-settings-recovery',JSON.stringify(saved)); } catch (_) {}
+  restoreConfig({maps:defaults,selX:0,selY:1,cfg:{}});migrationNotice='无效设置已保留备份，已恢复默认控制配置。';
+}
+let liveMode=true,presetStore=null;
+function captureConfig() { return cleanConfig({maps,selX,selY,cfg}); }
+function restoreConfig(value) {
+  const clean=cleanConfig(value);maps=clean.maps.map(cleanMap);selX=clean.selX;selY=clean.selY;Object.assign(cfg,clean.cfg);
+}
+function updatePresetHint() {
+  if(!presetStore)return;
+  $('#presetHint').textContent=presetStore.current().name+(presetStore.dirty(captureConfig())?' · Unsaved Changes':'');
+}
+let storageErrorShown=false;
+function persist() {
+  try {
+    localStorage.setItem(storageKey,JSON.stringify({...captureConfig(),theme:Theme.preferences()}));
+    presetStore?.checkpoint(captureConfig());storageErrorShown=false;updatePresetHint();
+  } catch(error) { if(!storageErrorShown){storageErrorShown=true;toast('保存失败：'+error.message);} }
+}
+
+// Semantic palette module. Preview tones approximate Monet; native palettes override roles.
+const Theme=(()=>{
+  const roles=['background','surface','bubble','onSurface','onSurfaceVariant','onBubble','onBubbleVariant','primary','onPrimary',
+    'secondary','primaryContainer','onPrimaryContainer','outline'];
+  const cssName=r=>'--color-'+r.replace(/[A-Z]/g,c=>'-'+c.toLowerCase());
+  const media=matchMedia('(prefers-color-scheme: dark)');
+  let mode=['system','light','dark'].includes(saved?.theme?.mode)?saved.theme.mode:'system';
+  let seed=/^#[0-9a-f]{6}$/i.test(saved?.theme?.seed||'')?saved.theme.seed:'#667f87';
+  let native=null,current={},isDark=false;
+  const presets=[['雾蓝','#667f87'],['鼠尾草','#708369'],['暖砂','#a4876c'],['丁香','#8c7b9a'],['玫瑰','#a37886']];
+  function hue(hex) {
+    const v=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255),hi=Math.max(...v),lo=Math.min(...v),d=hi-lo;
+    if(d<.001)return 205;
+    return ((hi===v[0]?(v[1]-v[2])/d:hi===v[1]?2+(v[2]-v[0])/d:4+(v[0]-v[1])/d)*60+360)%360;
+  }
+  function preview(dark) {
+    const h=hue(seed),t=(s,l)=>`hsl(${h.toFixed(1)} ${s}% ${l}%)`;
+    return dark?{
+      background:t(8,9),surface:t(9,16),bubble:t(13,44),onSurface:t(12,93),onSurfaceVariant:t(10,75),onBubble:t(9,98),onBubbleVariant:t(9,98),
+      primary:t(30,78),onPrimary:t(22,16),secondary:t(17,77),primaryContainer:t(22,27),onPrimaryContainer:t(30,91),outline:t(9,59)
+    }:{
+      background:t(12,98),surface:t(13,94),bubble:t(10,57),onSurface:t(12,11),onSurfaceVariant:t(12,33),onBubble:t(8,100),onBubbleVariant:t(18,12),
+      primary:t(25,34),onPrimary:t(8,100),secondary:t(15,37),primaryContainer:t(27,88),onPrimaryContainer:t(26,18),outline:t(10,46)
+    };
+  }
+  function validColor(v) { return typeof v==='string' && !/var\(|url\(|currentcolor|inherit|transparent/i.test(v) && CSS.supports('color',v); }
+  function rgb(color) {
+    const canvas=document.createElement('canvas'),c=canvas.getContext('2d',{willReadFrequently:true});
+    canvas.width=canvas.height=1;c.fillStyle=color;c.fillRect(0,0,1,1);return Array.from(c.getImageData(0,0,1,1).data);
+  }
+  function mix(a,b,f) { return `rgb(${a.slice(0,3).map((v,i)=>Math.round(v*(1-f)+b[i]*f)).join(' ')})`; }
+  function luminance(c) { const v=rgb(c).slice(0,3).map(x=>{x/=255;return x<=.04045?x/12.92:((x+.055)/1.055)**2.4;});return v[0]*.2126+v[1]*.7152+v[2]*.0722; }
+  function contrast(a,b) { const x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05); }
+  function readable(bg,fg,minimum=4.5) {
+    if(contrast(bg,fg)>=minimum)return fg;
+    const a='#101417',b='#fcfcfc';return contrast(bg,a)>contrast(bg,b)?a:b;
+  }
+  function apply() {
+    isDark=mode==='dark'||(mode==='system'&&media.matches);
+    current=preview(isDark);
+    const overrides=native?.[isDark?'dark':'light'];
+    if(overrides)for(const r of roles)if(validColor(overrides[r])) {
+      const color=rgb(overrides[r]); if(color[3]===255)current[r]=overrides[r];
+    }
+    current.onSurface=readable(current.background,current.onSurface);
+    current.onSurfaceVariant=readable(current.background,current.onSurfaceVariant);
+    // Large bold percentages use 3:1; small parameter names retain 4.5:1.
+    current.onBubble=readable(current.bubble,current.onBubble,3);
+    current.onBubbleVariant=readable(current.bubble,current.onBubbleVariant);
+    current.onPrimary=readable(current.primary,current.onPrimary);
+    current.onPrimaryContainer=readable(current.primaryContainer,current.onPrimaryContainer);
+    for(const r of roles)document.documentElement.style.setProperty(cssName(r),current[r]);
+    const surface=rgb(current.surface),white=[255,255,255],black=[0,0,0];
+    const tokens={highlight:mix(surface,white,isDark?.065:.9),shadow:mix(surface,black,isDark?.38:.14),
+      'glass-edge':mix(surface,white,isDark?.13:.75),scrim:isDark?'#00000080':'#10191e4d',
+      status:isDark?'#8bd6a1':'#398654','status-halo':isDark?'#8bd6a126':'#39865426'};
+    for(const [r,v] of Object.entries(tokens))document.documentElement.style.setProperty('--color-'+r,v);
+    document.documentElement.style.colorScheme=isDark?'dark':'light';
+    $('#themeColor').content=current.background;
+  }
+  function setPreview(value) { if(/^#[0-9a-f]{6}$/i.test(value)){seed=value;native=null;apply();persist();} }
+  function setMode(value) { if(['system','light','dark'].includes(value)){mode=value;apply();persist();} }
+  function applyNative(payload) {
+    if(!payload||typeof payload!=='object')return false;
+    if(payload.light||payload.dark)native={...(native||{}),...(payload.light?{light:payload.light}:{}),...(payload.dark?{dark:payload.dark}:{})};
+    else if(payload.colors)native={...(native||{}),[payload.mode==='dark'?'dark':'light']:payload.colors};
+    else return false;
+    if(['system','light','dark'].includes(payload.mode))mode=payload.mode;
+    apply();return true;
+  }
+  media.addEventListener('change',()=>{if(mode==='system')apply();});
+  apply();
+  return {presets,setPreview,setMode,applyNative,preferences:()=>({mode,seed}),colors:()=>({...current}),
+    info:()=>({mode,dark:isDark,source:native?.[isDark?'dark':'light']?'Android 原生色板':'浏览器模拟色板',seed}),contrast};
+})();
+
+// Complete contours live in the bubble's own coordinates, without wall constraints.
+// Only the final SVG is clipped. No pose history or visible-area compensation.
+function bubbleRest(W,H,bottomReserve=100) {
+  const a=Math.min(W*.47,H*.335/1.14),b=a*1.14;
+  return {a,b,x:W*.5,y:clamp(Math.min(H*.6,H-bottomReserve-b),b+.75,H-b-.75)};
+}
+function bubbleSegments(points) {
+  const N=points.length,at=i=>points[(i+N)%N];
+  return points.map((q,i)=>{
+    const prev=at(i-1),next=at(i+1),after=at(i+2);
+    return [q.map((v,k)=>(prev[k]+4*v+next[k])/6),
+      q.map((v,k)=>(2*v+next[k])/3),q.map((v,k)=>(v+2*next[k])/3),
+      q.map((v,k)=>(v+4*next[k]+after[k])/6)];
+  });
+}
+const bezierAt=(s,t)=>s[0].map((v,k)=>(1-t)**3*v+3*(1-t)**2*t*s[1][k]+3*(1-t)*t*t*s[2][k]+t**3*s[3][k]);
+function bubbleMoments(segments) {
+  // Five-point Gauss quadrature is exact for cubic area and first moments.
+  const nodes=[0,-.5384693101056831,.5384693101056831,-.906179845938664,.906179845938664];
+  const weights=[.5688888888888889,.4786286704993665,.4786286704993665,.2369268850561891,.2369268850561891];
+  let area=0,mx=0,my=0;
+  for(const s of segments)for(let j=0;j<5;j++) {
+    const t=(nodes[j]+1)/2,w=weights[j]/2,[x,y]=bezierAt(s,t);
+    const d=s[0].map((v,k)=>3*((1-t)**2*(s[1][k]-v)+2*(1-t)*t*(s[2][k]-s[1][k])+t*t*(s[3][k]-s[2][k])));
+    area+=w*(x*d[1]-y*d[0])/2;mx+=w*x*x*d[1]/2;my-=w*y*y*d[0]/2;
+  }
+  return {area,centroid:{x:mx/area,y:my/area}};
+}
+function bubbleContains(segments,[x,y]) {
+  // Intersect the FINAL serialized cubics with a horizontal ray. Split at y
+  // extrema first, so tangencies cannot double-count or hide a crossing.
+  let inside=false;
+  for(const s of segments) {
+    const [y0,y1,y2,y3]=s.map(p=>p[1]);
+    const A=-y0+3*y1-3*y2+y3,B=2*(y0-2*y1+y2),C=y1-y0,breaks=[0,1];
+    if(Math.abs(A)<1e-12) {if(Math.abs(B)>1e-12)breaks.push(-C/B);}
+    else {
+      const disc=B*B-4*A*C;
+      if(disc>=0){const root=Math.sqrt(disc);breaks.push((-B-root)/(2*A),(-B+root)/(2*A));}
+    }
+    const ts=breaks.filter(t=>t>=0&&t<=1).sort((a,b)=>a-b);
+    for(let i=1;i<ts.length;i++) {
+      let lo=ts[i-1],hi=ts[i];const yl=bezierAt(s,lo)[1],yh=bezierAt(s,hi)[1];
+      if((yl>y)===(yh>y))continue;
+      for(let k=0;k<34;k++){const mid=(lo+hi)/2;if((bezierAt(s,mid)[1]>y)===(yl>y))lo=mid;else hi=mid;}
+      if(bezierAt(s,(lo+hi)/2)[0]>=x)inside=!inside;
+    }
+  }
+  return inside;
+}
+function flattenBubble(segments,tolerance=.02) {
+  const points=[segments[0][0]],mid=(a,b)=>a.map((v,k)=>(v+b[k])/2);
+  function split(s,depth=0) {
+    const [a,b,c,d]=s,dx=d[0]-a[0],dy=d[1]-a[1],length=Math.hypot(dx,dy);
+    const distance=p=>Math.abs(dx*(p[1]-a[1])-dy*(p[0]-a[0]))/Math.max(length,1e-12);
+    if(depth>=12||Math.max(distance(b),distance(c))<=tolerance){points.push(d);return;}
+    const ab=mid(a,b),bc=mid(b,c),cd=mid(c,d),abc=mid(ab,bc),bcd=mid(bc,cd),center=mid(abc,bcd);
+    split([a,ab,abc,center],depth+1);split([center,bcd,cd,d],depth+1);
+  }
+  segments.forEach(s=>split(s));points.pop();return points;
+}
+function bubbleScreen(W,H,corner,tolerance=.02) {
+  const C=clamp(corner,0,Math.min(W,H)/2);
+  if(!C)return [[0,0],[W,0],[W,H],[0,H]];
+  const n=Math.max(2,Math.ceil(Math.PI/(4*Math.acos(1-Math.min(tolerance/C,1))))),points=[];
+  for(const [x,y,start] of [[W-C,C,-Math.PI/2],[W-C,H-C,0],[C,H-C,Math.PI/2],[C,C,Math.PI]])
+    for(let i=0;i<=n;i++){const t=start+i*Math.PI/(2*n);points.push([x+C*Math.cos(t),y+C*Math.sin(t)]);}
+  return points;
+}
+function clipBubble(points,boundary) {
+  // Sutherland-Hodgman against the same convex rounded screen used by SVG.
+  let out=points;
+  for(let i=0;i<boundary.length&&out.length;i++) {
+    const a=boundary[i],b=boundary[(i+1)%boundary.length],input=out;out=[];
+    const side=p=>(b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0]);
+    let prev=input[input.length-1],dp=side(prev);
+    for(const cur of input) {
+      const dc=side(cur);
+      if((dc>=0)!==(dp>=0)) {const t=dp/(dp-dc);out.push(prev.map((v,k)=>v+t*(cur[k]-v)));}
+      if(dc>=0)out.push(cur);prev=cur;dp=dc;
+    }
+  }
+  return out;
+}
+const bubblePolygonArea=points=>Math.abs(points.reduce((sum,p,i)=>{const q=points[(i+1)%points.length];return sum+p[0]*q[1]-p[1]*q[0];},0)/2);
+function solveBubble(W,H,roll,pitch,options=cfg,corner=0) {
+  const N=96,dth=2*Math.PI/N,correction=3/(2+Math.cos(dth));
+  const rest=bubbleRest(W,H,options.bottomReserve??100),{a,b}=rest;
+  const max=clamp(options.maxAngle||45,5,85),gain=clamp(options.sensitivity||1,.25,2.5);
+  const r=rad(clamp(roll*gain,-max,max)),p=rad(clamp(pitch*gain,-max,max));
+  const gx=Math.sin(r)*Math.cos(p),gy=Math.sin(p);
+  const hx=-gx*(options.invertX?-1:1),hy=-gy*(options.invertY?-1:1);
+  // Pose, never MIDI percentages. Each axis retains its full travel at compound
+  // angles; a zero on the other axis imposes no restriction. This polynomial
+  // maps the CURRENT pose only, with no time-based easing or interpolation.
+  const tx=-Math.sin(r)/Math.sin(rad(max))*(options.invertX?-1:1);
+  const ty=-Math.sin(p)/Math.sin(rad(max))*(options.invertY?-1:1);
+  const travel=t=>t*(.78+.22*t*t),u=travel(tx),v=travel(ty);
+  const cx=rest.x+u*(W*.5+a*.18);
+  const cy=rest.y+v*(H*.5+b*.28)+v*v*(H*.5-rest.y);
+  // Smooth angular strain in the translating object's coordinates. The third
+  // harmonic makes an asymmetric soft contour, rather than a rigid ellipse.
+  const norm=Math.sqrt(1+.5*(tx*tx+ty*ty)),ex=tx/norm,ey=ty/norm,strength=Math.hypot(ex,ey);
+  const base=[],free=[];
+  for(let i=0;i<N;i++) {
+    const t=i*dth,x=Math.cos(t),y=Math.sin(t),along=x*ex+y*ey;
+    const twice=2*along*along-strength*strength,thrice=4*along**3-3*strength*strength*along;
+    const strain=Math.exp(-.20*twice+.075*thrice+.035*along);
+    base.push([correction*a*x,correction*b*y]);free.push([correction*a*x*strain,correction*b*y*strain]);
+  }
+  const targetArea=bubbleMoments(bubbleSegments(base)).area,raw=bubbleMoments(bubbleSegments(free));
+  // Normalize ONLY the complete free shape, about its own actual centroid.
+  // No wall limits, screen-center pivot, or restoration of cropped-away area.
+  const areaScale=Math.sqrt(targetArea/raw.area);
+  const points=free.map(([x,y])=>[cx+(x-raw.centroid.x)*areaScale,cy+(y-raw.centroid.y)*areaScale]);
+  const segments=bubbleSegments(points).map(s=>s.map(p=>p.map(v=>Number(v.toFixed(3)))));
+  const P=p=>p.join(' ');
+  const path=`M${P(segments[0][0])}`+segments.map(s=>`C${P(s[1])} ${P(s[2])} ${P(s[3])}`).join('')+'Z';
+  // Metrics measure the serialized rendering cubics, never the control polygon.
+  const actual=bubbleMoments(segments),contour=flattenBubble(segments),screen=bubbleScreen(W,H,corner);
+  const visibleContour=clipBubble(contour,screen),visibleArea=bubblePolygonArea(visibleContour);
+  const defaultSegments=bubbleSegments(base.map(([x,y])=>[rest.x+x,rest.y+y])).map(s=>s.map(p=>p.map(v=>Number(v.toFixed(3)))));
+  const defaultVisibleArea=bubblePolygonArea(clipBubble(flattenBubble(defaultSegments),screen));
+  const C=clamp(corner,0,Math.min(W,H)/2);
+  const inScreen=([x,y])=>x>=0&&x<=W&&y>=0&&y<=H&&Math.hypot(x-clamp(x,C,W-C),y-clamp(y,C,H-C))<=C+1e-9;
+  const covered=point=>inScreen(point)&&bubbleContains(segments,point);
+  const contactEdges={left:false,right:false,top:false,bottom:false};
+  let roundedCornerContact=false;
+  for(const [x,y] of visibleContour) {
+    if(Math.abs(x)<1e-6)contactEdges.left=true;if(Math.abs(x-W)<1e-6)contactEdges.right=true;
+    if(Math.abs(y)<1e-6)contactEdges.top=true;if(Math.abs(y-H)<1e-6)contactEdges.bottom=true;
+    if(C&&x!==clamp(x,C,W-C)&&y!==clamp(y,C,H-C)&&Math.abs(Math.hypot(x-clamp(x,C,W-C),y-clamp(y,C,H-C))-C)<.05)roundedCornerContact=true;
+  }
+  return {path,cx,cy,a,b,targetArea,area:actual.area,areaError:(actual.area/targetArea-1)*100,
+    centroid:actual.centroid,restCenter:{x:rest.x,y:rest.y},screenCenterCovered:covered([W/2,H/2]),
+    restCenterCovered:covered([rest.x,rest.y]),visibleArea,defaultVisibleArea,visibleAreaRatio:visibleArea/defaultVisibleArea,
+    contactEdges,roundedCornerContact,contact:Object.values(contactEdges).filter(Boolean).length/4,
+    gravity:{x:gx,y:gy},high:{x:hx,y:hy},tilt:{x:tx,y:ty},strength,areaScale,points,contour,visibleContour,metricTolerance:.02};
+}
+
+// Device gravity in right/down/out coordinates. Screen rotation is applied to
+// vectors, never by swapping beta/gamma alone (which fails at compound angles).
+function deviceGravity(beta,gamma) {
+  const b=rad(beta),g=rad(gamma);return [Math.sin(g)*Math.cos(b),Math.sin(b),Math.cos(g)*Math.cos(b)];
+}
+const dot=(a,b)=>a.reduce((v,x,i)=>v+x*b[i],0);
+const unit=v=>{const n=Math.hypot(...v);return v.map(x=>x/n);};
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+let source='simulation',sensorPose=null,nativePose=null,simulation={roll:0,pitch:0};
+let zeroSimulation={roll:0,pitch:0},zeroNative={roll:0,pitch:0},zeroGravity=[0,0,1];
+let sensorEnabled=false,lastDeviceSample=null;
+let demoFrame=0,demoStart=0;
+function stopDemo(){if(demoFrame)cancelAnimationFrame(demoFrame);demoFrame=0;}
+function startDemo() {
+  stopDemo();sensorEnabled=false;source='simulation';zeroSimulation={roll:0,pitch:0};demoStart=performance.now();
+  // Time generates an OPTIONAL test pose, never integrates bubble motion.
+  function demo(now) {
+    const t=(now-demoStart)/1000;simulation={roll:Math.sin(t*.9)*42,pitch:Math.sin(t*.55)*40};
+    render();demoFrame=requestAnimationFrame(demo);
+  }
+  demoFrame=requestAnimationFrame(demo);
+}
+function screenAngle() { return finite(window.screen.orientation?.angle)?window.screen.orientation.angle:(window.orientation||0); }
+function poseFromDevice(sample) {
+  const gravity=deviceGravity(sample.beta,sample.gamma),n=zeroGravity;
+  // Tangent frame at calibrated gravity: well-defined even when phone is upright.
+  let x=[1-n[0]*n[0],-n[0]*n[1],-n[0]*n[2]];
+  if(Math.hypot(...x)<.01)x=cross([0,1,0],n);
+  x=unit(x);const y=unit(cross(n,x));
+  const rawX=dot(gravity,x),rawY=dot(gravity,y),z=dot(gravity,n);
+  const angle=rad(sample.screenAngle??screenAngle()),sx=rawX*Math.cos(angle)+rawY*Math.sin(angle),sy=-rawX*Math.sin(angle)+rawY*Math.cos(angle);
+  return {roll:clamp(deg(Math.atan2(sx,z)),-85,85),pitch:clamp(deg(Math.atan2(sy,Math.hypot(sx,z))),-85,85)};
+}
+function currentPose() {
+  if(source==='sensor'&&sensorPose)return poseFromDevice(sensorPose);
+  const t=source==='native'&&nativePose?nativePose:simulation,z=source==='native'?zeroNative:zeroSimulation;
+  return {roll:clamp(t.roll-z.roll,-85,85),pitch:clamp(t.pitch-z.pitch,-85,85)};
+}
+let W=0,H=0,lastSolution=null,readoutFont=66;
+let bottomReserve=100;
+const shape=$('#bubblePath'),clip=$('#clipContour'),svg=$('#bubbleSvg');
+function norm(m,a) { let v=clamp((a+m.range)/(2*m.range),0,1);return m.inv?1-v:v; }
+const isBend=m=>m.output==='pitchbend';
+const outputLabel=m=>isBend(m)?'PITCH BEND':`CC ${m.cc}`;
+const maxValue=m=>isBend(m)?16383:127;
+function mappedValue(m,a) {
+  if(m.axis===2)return m.manual;
+  if(isBend(m)) {
+    const position=clamp(a/m.range*m.sensitivity,-1,1)*(m.inv?-1:1);
+    return position>=0?8192+Math.round(position*8191):8192+Math.round(position*8192);
+  }
+  return Math.round(m.lo+norm(m,a)*(m.hi-m.lo));
+}
+function percent(m,value) {
+  if(!isBend(m))return Math.round(value/127*100)+'%';
+  const n=Math.round((value-8192)/(value>=8192?8191:8192)*100);
+  return (n>0?'+':'')+n+'%';
+}
+let midiOutput=null,midiAccess=null,nativeConnected=false,nativeLabel='',nativeStatus='MIDI 未连接',suspended=false;
+const lastMidi=new Map(),centerHolds=new Map();
+function available() { return nativeConnected||!!(midiOutput&&midiOutput.state==='connected'&&midiOutput.connection==='open'); }
+let lastSendError=0;
+function sendMessage(m,value,{force=false,reset=false}={}) {
+  if((!m.on&&!reset)||(!reset&&suspended)||!available())return false;
+  const type=isBend(m)?'pitchbend':'cc',key=`${type}:${m.ch}:${isBend(m)?'':m.cc}`;
+  value=clamp(Math.round(value),0,maxValue(m));
+  if(!force&&lastMidi.get(key)===value)return true;
+  const bytes=isBend(m)?[0xe0+m.ch-1,value&127,(value>>7)&127]:[0xb0+m.ch-1,m.cc,value];
+  let accepted=false,failed=false;
+  try {
+    if(midiOutput&&midiOutput.state==='connected'&&midiOutput.connection==='open'){midiOutput.send(bytes);accepted=true;}
+    if(nativeConnected) {
+      const ok=isBend(m)?window.GlisswayMidi?.sendPitchBend(m.ch,value):window.GlisswayMidi?.sendCC(m.ch,m.cc,value);
+      accepted=accepted||ok===true;failed=ok!==true;
+    }
+  } catch(error) { failed=true; }
+  if(accepted&&!failed)lastMidi.set(key,value);
+  if(failed&&Date.now()-lastSendError>2200){lastSendError=Date.now();toast('MIDI 发送失败；请检查连接。');}
+  if(accepted)dispatchEvent(new CustomEvent('glissway-midi',{detail:{type,channel:m.ch,...(!isBend(m)?{cc:m.cc}:{}),value,bytes}}));
+  return accepted&&!failed;
+}
+function resetBend(m,hold=false) {
+  if(!isBend(m))return;
+  const ok=sendMessage(m,8192,{force:true,reset:true});
+  if(hold) {m.v=m.manual=8192;const p=currentPose();centerHolds.set(m.id,{roll:p.roll,pitch:p.pitch});}
+  return ok;
+}
+function resetBends() {const channels=new Set();for(const m of maps)if(isBend(m)&&m.on&&!channels.has(m.ch)){resetBend(m);channels.add(m.ch);}}
+function outputValue(m,pose) {
+  const hold=centerHolds.get(m.id);
+  if(hold&&Math.abs(hold.roll-pose.roll)<.001&&Math.abs(hold.pitch-pose.pitch)<.001)return 8192;
+  centerHolds.delete(m.id);
+  return mappedValue(m,m.axis===1?pose.pitch:pose.roll);
+}
+function syncOutputs() {
+  const pose=currentPose(),selected=liveMode?[...new Set([maps[selX],maps[selY]])]:maps;
+  for(const m of selected) {m.v=liveMode?outputValue(m,pose):m.manual;sendMessage(m,m.v);}
+}
+function mapConflict(candidate,index) {
+  return candidate.on&&isBend(candidate)&&maps.some((m,i)=>i!==index&&m.on&&isBend(m)&&m.ch===candidate.ch);
+}
+function changeMapping(i,changes) {
+  const m=maps[i],next={...m,...changes};
+  if(mapConflict(next,i)){toast('Pitch Bend 通道冲突：请为映射选择不同 MIDI 通道。');return false;}
+  if(isBend(m)&&m.on&&(next.output!==m.output||next.ch!==m.ch||!next.on||next.axis!==m.axis))resetBend(m);
+  Object.assign(m,changes);centerHolds.delete(m.id);lastMidi.clear();chips();persist();render();if(!liveMode)rail();return true;
+}
+function render() {
+  if(!W||!H)return;
+  const pose=currentPose();
+  $('#pRoll').textContent=`Roll ${Math.abs(pose.roll)<.05?'0.0':pose.roll.toFixed(1)}°`;
+  $('#pPitch').textContent=`Pitch ${Math.abs(pose.pitch)<.05?'0.0':pose.pitch.toFixed(1)}°`;
+  if(liveMode) {
+    const mx=maps[selX],my=maps[selY],vx=outputValue(mx,pose),vy=mx===my?vx:outputValue(my,pose);
+    mx.v=vx;my.v=vy;sendMessage(mx,vx);if(mx!==my)sendMessage(my,vy);
+    $('#valueX').textContent=percent(mx,vx);$('#valueY').textContent=percent(my,vy);
+    for(const [axis,m] of [['X',mx],['Y',my]])$('#value'+axis).setAttribute('font-size',isBend(m)?Math.min(readoutFont,W*.128):readoutFont);
+  }
+  // Keep geometry diagnostics current in Edit too; its manual MIDI values stay
+  // independent of pose. The hidden SVG is ready immediately on returning.
+  const corner=parseFloat(getComputedStyle($('#screen')).borderTopLeftRadius)||0;
+  const screenBounds=$('#screenBounds');
+  for(const [key,value] of Object.entries({width:W,height:H,rx:corner,ry:corner}))screenBounds.setAttribute(key,value);
+  lastSolution=solveBubble(W,H,pose.roll,pose.pitch,{...cfg,bottomReserve},corner);
+  // Both paths change in the same JS task; there is no intermediate visible frame.
+  shape.setAttribute('d',lastSolution.path);clip.setAttribute('d',lastSolution.path);
+  const detail={roll:pose.roll,pitch:pose.pitch,gravity:lastSolution.gravity,high:lastSolution.high,
+    areaError:lastSolution.areaError,contact:lastSolution.contact,centroid:lastSolution.centroid,
+    screenCenterCovered:lastSolution.screenCenterCovered,restCenterCovered:lastSolution.restCenterCovered,
+    visibleAreaRatio:lastSolution.visibleAreaRatio,contactEdges:lastSolution.contactEdges,source};
+  if(liveMode)dispatchEvent(new CustomEvent('glissway-pose',{detail}));
+  updateDebug();
+}
+function resize() {
+  const box=$('#screen').getBoundingClientRect();W=box.width;H=box.height;
+  if(!W||!H)return;svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const landscape=W>H,font=Math.min(W*.157,landscape?H*.18:66);readoutFont=font;
+  if(liveMode)bottomReserve=H-($('#live .pdock').getBoundingClientRect().top-box.top)+16;
+  const {b,y:restY}=bubbleRest(W,H,bottomReserve);
+  const safeTop=parseFloat(getComputedStyle($('#screen')).getPropertyValue('--safe-top'))||0;
+  const baseline=landscape?H*.43:Math.max(safeTop+160,Math.min(H*.40,restY-b+font*.65));
+  [['X',W*.27],['Y',W*.73]].forEach(([axis,x])=>{
+    const value=$('#value'+axis),label=$('#label'+axis);
+    value.setAttribute('x',x);value.setAttribute('y',baseline);value.setAttribute('font-size',font);
+    label.setAttribute('x',x);label.setAttribute('y',baseline+24);label.setAttribute('font-size',Math.min(12,W*.029));
+  });
+  render();
+}
+new ResizeObserver(resize).observe($('#screen'));
+addEventListener('resize',resize);
+window.screen.orientation?.addEventListener('change',()=>{
+  if(sensorPose)sensorPose.screenAngle=screenAngle();render();
+});
+addEventListener('orientationchange',()=>{if(sensorPose)sensorPose.screenAngle=screenAngle();render();});
+addEventListener('deviceorientation',event=>{
+  if(!finite(event.beta)||!finite(event.gamma))return;
+  lastDeviceSample={beta:clamp(event.beta,-180,180),gamma:clamp(event.gamma,-90,90),screenAngle:screenAngle()};
+  if(!sensorEnabled)return;sensorPose=lastDeviceSample;source='sensor';render();
+});
+async function enableSensor() {
+  stopDemo();
+  if(window.GlisswayMidi){window.GlisswayMidi.enableSensor();return;}
+  try {
+    if(!window.DeviceOrientationEvent)throw new Error('此浏览器没有方向传感器接口');
+    if(typeof DeviceOrientationEvent.requestPermission==='function') {
+      if(await DeviceOrientationEvent.requestPermission()!=='granted')throw new Error('方向传感器权限未获允许');
+    }
+    sensorEnabled=true;
+    if(lastDeviceSample){sensorPose=lastDeviceSample;source='sensor';render();}
+    else toast(isSecureContext?'等待传感器数据；也可用开发模拟':'手机传感器通常需要 HTTPS，可先用开发模拟');
+    if(sheetKind==='settings')settingsSheet();
+  } catch(error) { toast(error.message); }
+}
+// Android Chrome does not need an iOS permission gesture; events are used as-is.
+if(window.DeviceOrientationEvent&&typeof DeviceOrientationEvent.requestPermission!=='function')sensorEnabled=true;
+function calibrate() {
+  stopDemo();
+  if(source==='sensor'&&sensorPose)zeroGravity=deviceGravity(sensorPose.beta,sensorPose.gamma);
+  else if(source==='native'&&nativePose)zeroNative={...nativePose};
+  else zeroSimulation={...simulation};
+  centerHolds.clear();lastMidi.clear();
+  for(const m of maps)if(m.on&&isBend(m)){resetBend(m);m.manual=m.v=8192;}
+  render();persist();toast('当前姿态已归零');
+}
+$('#calib').onclick=calibrate;$('#calib2').onclick=calibrate;
+function setSimulation(roll,pitch,resetZero=false) {
+  stopDemo();
+  sensorEnabled=false;source='simulation';simulation={roll:clamp(roll,-85,85),pitch:clamp(pitch,-85,85)};
+  if(resetZero)zeroSimulation={roll:0,pitch:0};render();
+}
+let drag=null;
+svg.addEventListener('pointerdown',event=>{
+  svg.setPointerCapture(event.pointerId);const t=currentPose();
+  setSimulation(t.roll,t.pitch,true);drag={x:event.clientX,y:event.clientY,roll:t.roll,pitch:t.pitch};
+});
+svg.addEventListener('pointermove',event=>{
+  if(drag)setSimulation(drag.roll+(event.clientX-drag.x)*cfg.maxAngle/(W*.35),drag.pitch+(event.clientY-drag.y)*cfg.maxAngle/(H*.3));
+});
+function endDrag(){drag=null;}
+svg.addEventListener('pointerup',endDrag);svg.addEventListener('pointercancel',endDrag);svg.addEventListener('lostpointercapture',endDrag);
+const heldKeys=new Set(),keyMap={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};
+function keyboardPose(){let x=0,y=0;for(const key of heldKeys){x+=keyMap[key][0];y+=keyMap[key][1];}setSimulation(x*35,y*35,true);}
+addEventListener('keydown',event=>{
+  if(/INPUT|SELECT|TEXTAREA/.test(event.target.tagName)||!$('#sheetWrap').hidden)return;
+  if(keyMap[event.key]){event.preventDefault();heldKeys.add(event.key);keyboardPose();}
+  else if(event.key.toLowerCase()==='d')debugSheet();
+  else if(event.key==='0')setSimulation(0,0,true);
+});
+addEventListener('keyup',event=>{if(heldKeys.delete(event.key))keyboardPose();});
+addEventListener('blur',()=>{if(heldKeys.size){heldKeys.clear();keyboardPose();}endDrag();});
+
+function chips() {
+  for(const [axis,index] of [['X',selX],['Y',selY]]) {
+    const m=maps[index];$('#'+axis.toLowerCase()+'Name').textContent=m.name;
+    $('#'+axis.toLowerCase()+'Sub').textContent=isBend(m)?'PITCH BEND':`${outputLabel(m)} · ${AX[m.axis]}`;
+    $('#label'+axis).textContent=axis+' · '+m.name;
+  }
+}
+function mode(value) {
+  if(liveMode!==value)resetBends();centerHolds.clear();lastMidi.clear();
+  liveMode=value;$('#live').hidden=!value;$('#edit').hidden=value;
+  $('#bLive').classList.toggle('on',value);$('#bEdit').classList.toggle('on',!value);
+  $('#bLive').setAttribute('aria-pressed',value);$('#bEdit').setAttribute('aria-pressed',!value);
+  closeSheet();if(!value){stopDemo();rail();}resize();
+}
+$('#bLive').onclick=()=>mode(true);$('#bEdit').onclick=()=>mode(false);
+function rail() {
+  const list=$('#rail');list.replaceChildren();
+  maps.forEach((m,i)=>{
+    const ctl=document.createElement('div');ctl.className='ctl'+(m.on?'':' off');
+    ctl.innerHTML='<div class="track inset" role="slider" tabindex="0" aria-valuemin="0"><div class="fill"><b></b></div></div><button class="name"></button><div class="sub"></div>';
+    const track=ctl.querySelector('.track'),fill=ctl.querySelector('.fill'),max=maxValue(m);
+    function display(){fill.style.height=`calc(${m.manual/max*100}% - 14px)`;fill.querySelector('b').textContent=isBend(m)?percent(m,m.manual):m.manual;track.setAttribute('aria-valuenow',m.manual);track.setAttribute('aria-valuetext',isBend(m)?percent(m,m.manual):m.manual);}
+    track.setAttribute('aria-label',m.name);track.setAttribute('aria-valuemax',max);display();
+    const set=y=>{const rect=track.getBoundingClientRect();m.manual=m.v=Math.round(clamp((rect.bottom-y)/rect.height,0,1)*max);centerHolds.delete(m.id);display();sendMessage(m,m.v);updatePresetHint();};
+    let sliding=false;
+    track.onpointerdown=e=>{track.setPointerCapture(e.pointerId);sliding=true;set(e.clientY);};
+    track.onpointermove=e=>{if(sliding)set(e.clientY);};
+    track.onpointerup=track.onpointercancel=track.onlostpointercapture=()=>{sliding=false;persist();};
+    track.onkeydown=e=>{if(['ArrowUp','ArrowDown','Home','End'].includes(e.key)){
+      e.preventDefault();e.stopPropagation();m.manual=m.v=e.key==='Home'?0:e.key==='End'?max:clamp(m.manual+(e.key==='ArrowUp'?1:-1)*(isBend(m)?128:1),0,max);display();sendMessage(m,m.v);persist();}};
+    const name=ctl.querySelector('.name');name.textContent=m.name;name.onclick=()=>mappingSheet(i);
+    ctl.querySelector('.sub').textContent=`${outputLabel(m)} · ${AX[m.axis]}`;list.append(ctl);
+  });
+  const add=document.createElement('button');add.className='add raised';add.textContent='+';add.title='添加控制器（最多 32）';add.setAttribute('aria-label','添加控制器');add.disabled=maps.length>=32;
+  add.onclick=()=>{if(maps.length>=32)return;maps.push(cleanMap({name:'CTRL '+(maps.length+1),cc:Math.min(127,20+maps.length),ch:1,axis:0,v:64,lo:0,hi:127,range:64,on:true}));persist();rail();};list.append(add);
+}
+let sheetKind='',focusBefore=null,toastTimer;
+function toast(message) { $('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,2200); }
+const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const field=(label,id,value,min,max,step=1)=>`<label class="field inset-sm"><span>${label}</span><input id="${id}" type="number" min="${min}" max="${max}" step="${step}" value="${value}"></label>`;
+const toggle=(label,id,on)=>`<label class="toggle"><span>${label}</span><input type="checkbox" id="${id}" ${on?'checked':''}></label>`;
+function openSheet(title,body,kind) {
+  if($('#sheetWrap').hidden)focusBefore=document.activeElement;
+  sheetKind=kind;$('#sheet').innerHTML=`<h3 id="sheetTitle"><span>${esc(title)}</span><button class="ib raised-sm" id="closeSheet" aria-label="关闭">×</button></h3>${body}`;
+  $('#sheetWrap').hidden=false;$('#closeSheet').onclick=closeSheet;$('#sheet').focus();
+}
+function closeSheet() {
+  $('#sheetWrap').hidden=true;sheetKind='';$('#asX').setAttribute('aria-expanded','false');$('#asY').setAttribute('aria-expanded','false');
+  focusBefore?.focus();focusBefore=null;
+}
+$('#scrim').onclick=closeSheet;
+addEventListener('keydown',event=>{
+  if($('#sheetWrap').hidden)return;
+  if(event.key==='Escape'){event.preventDefault();closeSheet();}
+  if(event.key==='Tab') {
+    const nodes=Array.from($('#sheet').querySelectorAll('button,input,select,[tabindex="0"]')).filter(n=>!n.disabled),first=nodes[0],last=nodes.at(-1);
+    if(event.shiftKey&&(document.activeElement===first||document.activeElement===$('#sheet'))){event.preventDefault();last?.focus();}
+    else if(!event.shiftKey&&(document.activeElement===last||document.activeElement===$('#sheet'))){event.preventDefault();first?.focus();}
+  }
+});
+function mappingSheet(i) {
+  const m=maps[i],bend=isBend(m);
+  openSheet(m.name,`<div class="grid">
+    <label class="field inset-sm wide"><span>参数名称</span><input id="mapName" maxlength="24" value="${esc(m.name)}"></label>
+    <label class="field inset-sm wide"><span>Output Type</span><select id="mapOutput"><option value="cc" ${bend?'':'selected'}>Control Change (CC)</option><option value="pitchbend" ${bend?'selected':''}>Pitch Bend</option></select></label>
+    <div class="note wide" style="margin:0">Control Axis</div><div class="segaxis inset-sm" aria-label="Control Axis">${['左右 Roll','前后 Pitch','手动 Manual'].map((v,k)=>`<button data-axis="${k}" class="${m.axis===k?'on':''}">${v}</button>`).join('')}</div>
+    ${bend?'':field('CC Number','mapCC',m.cc,0,127)}${field('MIDI Channel','mapCh',m.ch,1,16)}
+    ${bend?'':field('输出最小','mapLo',m.lo,0,127)+field('输出最大','mapHi',m.hi,0,127)}${field('Angle Range · 单侧 °','mapRange',m.range,1,180)}
+    ${bend?field('Pitch Bend Sensitivity','mapSensitivity',m.sensitivity,.1,4,.05):'<div class="field inset-sm"><span>响应方式</span><span>即时 · 无平滑</span></div>'}
+    ${toggle('启用此参数','mapOn',m.on)}${toggle('Invert Direction · 反转 MIDI','mapInv',m.inv)}
+    ${bend?'<button class="action wide" id="resetCenter">Reset to Center · 8192</button>':''}
+    <button class="action wide" id="deleteMap" ${maps.length===1?'disabled':''}>删除控制器</button>
+  </div><p class="note">${bend?'灵敏度只调整倾角到 14-bit 数值的映射；接收乐器的半音范围需在乐器中设置。Reset to Center 后，下次姿态变化恢复控制。':'输出使用原有标准 CC 消息。'} X / Y 气泡运动方向在姿态设置中独立调整。</p>`,'mapping');
+  const bindings=[['mapCC','cc',0,127,1],['mapCh','ch',1,16,1],['mapLo','lo',0,127,1],['mapHi','hi',0,127,1],['mapRange','range',1,180,.1],['mapSensitivity','sensitivity',.1,4,.05]];
+  for(const [id,key,min,max,step] of bindings)if($('#'+id))$('#'+id).onchange=e=>{
+    const v=clamp(Number(e.target.value)||min,min,max),value=step===1?Math.round(v):v;
+    if(!changeMapping(i,{[key]:value}))e.target.value=m[key];else e.target.value=value;
+  };
+  $('#mapOutput').onchange=e=>{
+    const output=e.target.value,nextBend=output==='pitchbend';
+    if(changeMapping(i,{output,manual:nextBend?8192:64,v:nextBend?8192:64}))mappingSheet(i);else e.target.value=m.output;
+  };
+  $('#mapName').onchange=e=>changeMapping(i,{name:e.target.value.trim()||'CTRL'});
+  $('#sheet').querySelectorAll('[data-axis]').forEach(b=>b.onclick=()=>{changeMapping(i,{axis:+b.dataset.axis});mappingSheet(i);});
+  for(const [id,key] of [['mapOn','on'],['mapInv','inv']])$('#'+id).onchange=e=>{if(!changeMapping(i,{[key]:e.target.checked}))e.target.checked=m[key];};
+  if(bend)$('#resetCenter').onclick=()=>{const ok=resetBend(m,true);persist();if(!liveMode)rail();$('#valueX').textContent=percent(maps[selX],maps[selX].v);$('#valueY').textContent=percent(maps[selY],maps[selY].v);toast(ok?'Pitch Bend 已归中':'未连接 MIDI；中心值已设为 8192。');};
+  $('#deleteMap').onclick=()=>{
+    if(maps.length===1)return;resetBend(m);const x=maps[selX].id,y=maps[selY].id;maps.splice(i,1);
+    selX=Math.max(0,maps.findIndex(v=>v.id===x));selY=Math.max(0,maps.findIndex(v=>v.id===y));
+    lastMidi.clear();persist();chips();rail();closeSheet();render();
+  };
+}
+function axisSheet(axis) {
+  const index=axis==='X'?selX:selY,m=maps[index];
+  openSheet(`${axis} 轴映射`, `<div class="grid">
+    <div class="pick">${maps.map((v,k)=>`<button data-map="${k}" class="raised-sm ${k===index?'on':''}">${esc(v.name)} · ${outputLabel(v)}</button>`).join('')}</div>
+    <div class="field inset-sm"><span>Control Axis · 单侧角度</span>${AX[m.axis]} · ${m.range}°</div><div class="field inset-sm"><span>输出范围</span>${isBend(m)?'0 · 8192 · 16383':m.lo+'–'+m.hi}</div>
+    ${toggle('反转此参数的 MIDI 输出','axisInv',m.inv)}${toggle(`反转 ${axis} 气泡运动方向`,'axisMotion',cfg[axis==='X'?'invertX':'invertY'])}
+    <button class="action wide" id="editBinding">编辑此映射</button>
+  </div>`,'axis');$('#as'+axis).setAttribute('aria-expanded','true');
+  $('#sheet').querySelectorAll('[data-map]').forEach(b=>b.onclick=()=>{
+    const k=+b.dataset.map;if(k===index)return;
+    resetBend(m);if(axis==='X')selX=k;else selY=k;centerHolds.clear();chips();lastMidi.clear();persist();render();axisSheet(axis);
+  });
+  $('#axisInv').onchange=e=>changeMapping(index,{inv:e.target.checked});
+  $('#axisMotion').onchange=e=>{cfg[axis==='X'?'invertX':'invertY']=e.target.checked;persist();render();};
+  $('#editBinding').onclick=()=>mappingSheet(index);
+}
+$('#asX').onclick=()=>axisSheet('X');$('#asY').onclick=()=>axisSheet('Y');
+function themeControls() {
+  const info=Theme.info();return `<label class="field inset-sm wide"><span>明暗主题</span><select id="themeMode">${[['system','跟随系统'],['light','浅色'],['dark','深色']].map(([v,t])=>`<option value="${v}" ${info.mode===v?'selected':''}>${t}</option>`).join('')}</select></label>
+    <div class="pick">${Theme.presets.map(([name,color])=>`<button data-seed="${color}" class="raised-sm ${info.seed===color?'on':''}">${name}</button>`).join('')}</div>
+    <p class="note wide" id="themeSource">${info.source} · 预览主题近似 Material You 色阶。Android 封装后由原生层提供系统色板。</p>`;
+}
+function bindThemeControls() {
+  $('#themeMode').onchange=e=>{Theme.setMode(e.target.value);$('#themeSource').textContent=Theme.info().source+' · '+(Theme.info().dark?'深色':'浅色');};
+  $('#sheet').querySelectorAll('[data-seed]').forEach(b=>b.onclick=()=>{
+    Theme.setPreview(b.dataset.seed);$('#sheet').querySelectorAll('[data-seed]').forEach(v=>v.classList.toggle('on',v===b));$('#themeSource').textContent=Theme.info().source;
+  });
+}
+function settingsSheet() {
+  openSheet('姿态与主题',`<div class="grid">
+    ${field('气泡最大角度 °','maxAngle',cfg.maxAngle,5,85)}${field('气泡灵敏度','sensitivity',cfg.sensitivity,.25,2.5,.05)}
+    ${toggle('反转 X 运动方向','invertX',cfg.invertX)}${toggle('反转 Y 运动方向','invertY',cfg.invertY)}
+    <button class="action" id="sensorStart">启用手机传感器</button><button class="action" id="settingsZero">当前姿态归零</button>
+    ${themeControls()}<button class="action wide" id="openDebug">开发调试 · 姿态模拟</button>
+  </div><p class="note">灵敏度仅改变当前角度的增益，不添加延迟。MIDI 单侧角度和输出范围在各映射内设置。</p>`,'settings');
+  for(const [id,min,max] of [['maxAngle',5,85],['sensitivity',.25,2.5]])$('#'+id).onchange=e=>{cfg[id]=clamp(Number(e.target.value)||min,min,max);e.target.value=cfg[id];persist();render();};
+  for(const id of ['invertX','invertY'])$('#'+id).onchange=e=>{cfg[id]=e.target.checked;persist();render();};
+  $('#sensorStart').onclick=enableSensor;$('#settingsZero').onclick=calibrate;$('#openDebug').onclick=debugSheet;bindThemeControls();
+}
+$('#settings').onclick=settingsSheet;
+function debugSheet() {
+  const t=currentPose();
+  openSheet('开发调试',`<label class="debug-slider">Roll <output id="simRollValue"></output>°<input id="simRoll" type="range" min="-85" max="85" step=".1" value="${t.roll}"></label>
+    <label class="debug-slider">Pitch <output id="simPitchValue"></output>°<input id="simPitch" type="range" min="-85" max="85" step=".1" value="${t.pitch}"></label>
+    <div class="grid"><button class="action" id="debugZero">当前姿态归零</button><button class="action" id="debugLevel">模拟水平 0°</button>
+    <button class="action wide" id="debugSensor">恢复手机传感器</button></div>
+    <label class="toggle">自动演示姿态<input type="checkbox" id="debugDemo" ${demoFrame?'checked':''}></label>
+    <p class="stats" id="debugStats"></p><h4>Monet 模拟主题</h4><div class="grid">${themeControls()}</div>
+    <label class="seed-picker">模拟壁纸种子色 <input id="customSeed" type="color" value="${Theme.info().seed}"></label>
+    <p class="note">拖动滑块即切换到模拟输入。也可关闭面板后拖动画面、按方向键；松开方向键立即回到水平。D 打开调试，0 恢复水平。传感器默认无滤波。</p>`,'debug');
+  const slider=()=>setSimulation(Number($('#simRoll').value),Number($('#simPitch').value),true);
+  $('#simRoll').oninput=slider;$('#simPitch').oninput=slider;
+  $('#debugZero').onclick=calibrate;$('#debugLevel').onclick=()=>setSimulation(0,0,true);$('#debugSensor').onclick=enableSensor;
+  $('#debugDemo').onchange=e=>{if(e.target.checked)startDemo();else stopDemo();};
+  $('#customSeed').oninput=e=>Theme.setPreview(e.target.value);bindThemeControls();updateDebug();
+}
+function updateDebug() {
+  if(sheetKind!=='debug')return;
+  const t=currentPose();
+  $('#debugDemo').checked=!!demoFrame;
+  $('#simRollValue').value=t.roll.toFixed(1);$('#simPitchValue').value=t.pitch.toFixed(1);
+  if(document.activeElement!==$('#simRoll'))$('#simRoll').value=t.roll;
+  if(document.activeElement!==$('#simPitch'))$('#simPitch').value=t.pitch;
+  if(lastSolution) {
+    const s=lastSolution,covered=v=>v?'被覆盖':'已露出',edges=s.contactEdges;
+    $('#debugStats').textContent=`输入：${source} · 屏幕方向 ${screenAngle()}°\n实际姿态：Roll ${t.roll.toFixed(1)}° / Pitch ${t.pitch.toFixed(1)}°\nMIDI ${liveMode?'Live':'Edit'}：X ${percent(maps[selX],maps[selX].v)} / Y ${percent(maps[selY],maps[selY].v)}（百分比不代表倾角）\n重力：(${s.gravity.x.toFixed(3)}, ${s.gravity.y.toFixed(3)}) · 高处：(${s.high.x.toFixed(3)}, ${s.high.y.toFixed(3)})\n屏幕正中心 (${(W/2).toFixed(1)}, ${(H/2).toFixed(1)})：${covered(s.screenCenterCovered)}\n默认气泡中心 (${s.restCenter.x.toFixed(1)}, ${s.restCenter.y.toFixed(1)})：${covered(s.restCenterCovered)}\n完整轮廓实际重心：(${s.centroid.x.toFixed(2)}, ${s.centroid.y.toFixed(2)})\n可见面积 / 默认可见面积：${(s.visibleAreaRatio*100).toFixed(2)}%\n完整面积误差：${s.areaError.toFixed(5)}%\n边缘接触：左 ${edges.left?'是':'否'} / 右 ${edges.right?'是':'否'} / 上 ${edges.top?'是':'否'} / 下 ${edges.bottom?'是':'否'}\n圆角接触：${s.roundedCornerContact?'是':'否'} · 可见面积采样容差 ${s.metricTolerance} px`;
+    $('#debugStats').style.whiteSpace='pre-line';
+  }
+}
+$('#mapList').onclick=()=>{
+  openSheet('映射列表',`<div class="pick">${maps.map((m,i)=>`<button class="raised-sm" data-edit="${i}">${esc(m.name)} · ${outputLabel(m)}</button>`).join('')}</div>`,'list');
+  $('#sheet').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>mappingSheet(+b.dataset.edit));
+};
+let presetSelection=null;
+function presetError(error) { toast('预设保存失败：'+error.message); }
+function presetsSheet(selected=presetSelection) {
+  if(!presetStore){toast('预设存储不可用；请检查设备存储空间。');return;}
+  const current=presetStore.current(),entries=presetStore.list();
+  presetSelection=entries.some(p=>p.id===selected)?selected:current.id;
+  const dirty=presetStore.dirty(captureConfig());
+  openSheet('Presets',`<div class="preset-summary">当前：<b>${esc(current.name)}</b><br><span>${dirty?'Unsaved Changes · 未保存修改':'已保存'}</span></div>
+    <div class="preset-list">${entries.map(p=>`<button class="preset-row raised-sm ${p.id===presetSelection?'on':''}" data-preset="${esc(p.id)}" aria-pressed="${p.id===presetSelection}">${esc(p.name)}${p.id===current.id?'<small>当前已加载</small>':''}</button>`).join('')}</div>
+    <div class="grid"><button class="action" id="presetLoad">Load · 加载选中</button><button class="action" id="presetSave" ${dirty?'':'disabled'}>Save · 保存当前</button>
+    <button class="action" id="presetSaveAs">Save As · 另存为</button><button class="action" id="presetRename">Rename · 重命名</button>
+    <button class="action" id="presetDuplicate">Duplicate · 复制</button><button class="action" id="presetDelete">Delete · 删除</button></div>
+    <p class="note">只保存 MIDI 控制配置。主题、当前连接和临时校准保持独立。选中预设后点击 Load 加载。</p>`,'presets');
+  $('#sheet').querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>presetsSheet(b.dataset.preset));
+  $('#presetSave').onclick=()=>{try{presetStore.save(captureConfig());persist();presetsSheet();toast('预设已保存');}catch(error){presetError(error);}};
+  $('#presetSaveAs').onclick=()=>presetNameSheet('saveAs');
+  $('#presetRename').onclick=()=>presetNameSheet('rename');
+  $('#presetDuplicate').onclick=()=>presetNameSheet('duplicate');
+  $('#presetLoad').onclick=()=>requestPresetLoad(presetSelection);
+  $('#presetDelete').onclick=()=>{
+    const item=entries.find(p=>p.id===presetSelection);
+    openSheet('删除预设',`<p class="preset-summary">删除「${esc(item.name)}」？${item.id===current.id&&dirty?'当前未保存的修改也会丢弃。':''}</p><div class="grid"><button class="action" id="cancelDelete">Cancel</button><button class="action" id="confirmDelete">Delete</button></div>`,'preset-delete');
+    $('#cancelDelete').onclick=()=>presetsSheet(item.id);
+    $('#confirmDelete').onclick=()=>{try{
+      // Commit the removal first; failed storage writes must leave the current performance intact.
+      const result=presetStore.remove(item.id);
+      if(result.currentChanged)applyPresetConfig(result.config);
+      persist();presetsSheet();toast('预设已删除');
+    }catch(error){presetError(error);}};
+  };
+}
+function presetNameSheet(action) {
+  const selected=presetStore.list().find(p=>p.id===presetSelection)||presetStore.current();
+  const title={saveAs:'Save As',rename:'Rename',duplicate:'Duplicate'}[action];
+  openSheet(title,`<label class="field inset-sm" style="display:block"><span>预设名称 · 支持中文与其他 Unicode</span><input id="presetName" maxlength="160" value="${esc(action==='rename'?selected.name:action==='duplicate'?selected.name+' Copy':'')}" autocomplete="off"></label><p class="note" id="presetNameError" role="status"></p><div class="grid"><button class="action" id="cancelName">Cancel</button><button class="action" id="confirmName">${title}</button></div>`,'preset-name');
+  $('#cancelName').onclick=()=>presetsSheet();
+  const commit=()=>{try{
+    const name=$('#presetName').value;
+    if(action==='saveAs'){const item=presetStore.saveAs(name,captureConfig());presetSelection=item.id;}
+    else if(action==='rename')presetStore.rename(selected.id,name);
+    else {const item=presetStore.duplicate(selected.id,name);presetSelection=item.id;}
+    persist();presetsSheet();
+  }catch(error){$('#presetNameError').textContent=error.message;}};
+  $('#confirmName').onclick=commit;$('#presetName').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();commit();}};
+  $('#presetName').focus();
+}
+function applyPresetConfig(config) {
+  resetBends();restoreConfig(config);centerHolds.clear();lastMidi.clear();chips();if(!liveMode)rail();render();syncOutputs();updatePresetHint();
+}
+function loadPreset(id) {
+  try {const config=presetStore.load(id);applyPresetConfig(config);persist();presetsSheet(id);toast('预设已加载');}
+  catch(error){presetError(error);}
+}
+function requestPresetLoad(id) {
+  if(!presetStore.dirty(captureConfig())){loadPreset(id);return;}
+  openSheet('Unsaved Changes',`<p class="note">当前预设有未保存修改。加载前保存，或丢弃修改？</p><div class="grid"><button class="action" id="saveThenLoad">Save</button><button class="action" id="discardThenLoad">Discard</button><button class="action wide" id="cancelLoad">Cancel</button></div>`,'preset-unsaved');
+  $('#saveThenLoad').onclick=()=>{try{presetStore.save(captureConfig());loadPreset(id);}catch(error){presetError(error);}};
+  $('#discardThenLoad').onclick=()=>loadPreset(id);$('#cancelLoad').onclick=()=>presetsSheet(id);
+}
+$('#presets').onclick=()=>presetsSheet();
+$('#help').onclick=()=>openSheet('Glissway · 使用方法','<p class="note">Live：手机姿态直接控制 X / Y 绑定的映射，点击底部参数选择映射。气泡向高处浮起，其运动方向可独立反转。</p><p class="note">Edit：拖动推子发送 CC 或 Pitch Bend，点击名称编辑 Output Type、通道、控制轴、角度和范围。Pitch Bend 使用 14-bit 消息，中心为 8192；灵敏度不改变乐器的半音范围。同一通道只允许一个启用的 Pitch Bend 映射。</p><p class="note">Edit 底部书签按钮打开 Presets。Save As 创建命名预设；选中预设后 Load；Save 覆盖当前预设。也可复制、重命名和删除。未保存修改会提示 Save / Discard / Cancel。</p><p class="note">地球按钮连接现有 BLE MIDI 或 RTP-MIDI；胶囊绿光代表可用 MIDI 输出。右上角可启用传感器、校准及切换主题。Android 使用真实原生传输，浏览器使用 Web MIDI。</p>','help');
+function updateConnection(connected,label,status) {
+  const changed=nativeConnected!==connected||nativeLabel!==label||nativeStatus!==status;
+  nativeConnected=connected;nativeLabel=label;nativeStatus=status||(connected?label+' 已连接':'MIDI 未连接');
+  const ready=available(),text=ready?(nativeConnected?nativeLabel:midiOutput?.name||'MIDI')+' 已连接':nativeStatus;
+  $('#modeCapsule').classList.toggle('connected',ready);$('#modeCapsule').title=text;
+  $('#modeCapsule').setAttribute('aria-label','Edit / Live · '+text);
+  if($('#connectionStatus'))$('#connectionStatus').textContent=text;
+  if(changed){lastMidi.clear();if(ready){render();if(!liveMode)syncOutputs();}}
+}
+async function connectionSheet() {
+  const native=!!window.GlisswayMidi;
+  openSheet('MIDI 连接',`<p class="note" id="connectionStatus">${esc(available()?(nativeConnected?nativeLabel:midiOutput?.name)+' 已连接':nativeStatus)}</p>
+    <div class="grid">${native?`<button class="action wide" id="startBle">启动 / 重启 BLE MIDI</button>
+      <p class="note wide">在接收端 MIDI 设置中连接这台手机。RTP-MIDI 使用电脑现有网络会话；两种连接沿用原应用的切换方式。</p>
+      <label class="field inset-sm wide"><span>RTP-MIDI 电脑 IP / Host</span><input id="rtpHost" autocomplete="off" inputmode="url" placeholder="192.168.1.20"></label>
+      ${field('AppleMIDI 控制端口','rtpPort',5004,1,65534)}<button class="action" id="connectRtp">连接 RTP-MIDI</button>
+      <button class="action wide" id="stopMidi">停止 MIDI</button>`:'<button class="action wide" id="enableMidi">选择 Web MIDI 输出</button><div class="pick" id="midiPorts"></div>'}</div>`,'connection');
+  if(native) {
+    $('#startBle').onclick=()=>{resetBends();window.GlisswayMidi.startBle();};
+    $('#stopMidi').onclick=()=>{resetBends();window.GlisswayMidi.stopMidi();};
+    $('#connectRtp').onclick=()=>{
+      const host=$('#rtpHost').value.trim(),port=Number($('#rtpPort').value);
+      if(!host||!Number.isInteger(port)||port<1||port>65534){toast('请填写电脑 IP 和有效控制端口。');return;}
+      resetBends();window.GlisswayMidi.connectRtp(host,port);
+    };
+    window.GlisswayMidi.requestState();return;
+  }
+  $('#enableMidi').onclick=async()=>{
+    try {
+      if(!navigator.requestMIDIAccess)throw new Error('此浏览器不支持 Web MIDI，请在 Android 中使用 BLE / RTP-MIDI。');
+      midiAccess=await navigator.requestMIDIAccess({sysex:false});
+      function ports() {
+        if(sheetKind!=='connection')return;
+        const list=$('#midiPorts');list.replaceChildren();
+        for(const output of midiAccess.outputs.values()) {
+          if(output.state!=='connected')continue;
+          const button=document.createElement('button');button.className='raised-sm';button.textContent=output.name;
+          button.onclick=async()=>{try{resetBends();await midiOutput?.close();midiOutput=null;await output.open();midiOutput=output;lastMidi.clear();updateConnection(nativeConnected,nativeLabel);syncOutputs();toast('MIDI 输出已连接');closeSheet();}catch(error){updateConnection(nativeConnected,nativeLabel);toast(error.message);}};list.append(button);
+        }
+        if(!list.children.length)list.textContent='没有可用的 MIDI 输出设备';
+      }
+      ports();midiAccess.onstatechange=event=>{
+        if(midiOutput?.id===event.port.id&&event.port.state==='disconnected'){midiOutput=null;lastMidi.clear();updateConnection(nativeConnected,nativeLabel);toast('MIDI 输出已断开');}ports();
+      };
+    } catch(error) { toast(error.message); }
+  };
+}
+$('#connect').onclick=connectionSheet;
+
+// Native calls directly update the same input/render path. No Android dependency.
+window.Glissway=Object.freeze({
+  applyTheme:payload=>Theme.applyNative(payload),
+  setPose:pose=>{
+    if(!pose||!finite(pose.roll)||!finite(pose.pitch))return false;
+    nativePose={roll:clamp(pose.roll,-180,180),pitch:clamp(pose.pitch,-180,180)};
+    stopDemo();sensorEnabled=false;source='native';render();return true;
+  },
+  setDeviceOrientation:pose=>{
+    if(!pose||!finite(pose.beta)||!finite(pose.gamma))return false;
+    sensorPose={beta:clamp(pose.beta,-180,180),gamma:clamp(pose.gamma,-90,90),screenAngle:finite(pose.screenAngle)?pose.screenAngle:screenAngle()};
+    stopDemo();sensorEnabled=false;source='sensor';render();return true;
+  },
+  setConnection:state=>{if(state)updateConnection(state.bleConnected===true||state.rtpConnected===true||state.connected===true,String(state.label||'MIDI'),String(state.status||''));},
+  suspend:()=>{persist();resetBends();suspended=true;stopDemo();},
+  resume:()=>{suspended=false;lastMidi.clear();render();if(!liveMode)syncOutputs();},
+  calibrate,simulate:(roll,pitch)=>{if(finite(roll)&&finite(pitch))setSimulation(roll,pitch,true);},
+  openDebug:debugSheet,
+  getState:()=>({pose:currentPose(),source,config:{...cfg},theme:Theme.info(),colors:Theme.colors(),
+    mapping:{x:{...maps[selX]},y:{...maps[selY]}},geometry:lastSolution?{
+      cx:lastSolution.cx,cy:lastSolution.cy,width:lastSolution.a*2,height:lastSolution.b*2,area:lastSolution.area,
+      targetArea:lastSolution.targetArea,areaError:lastSolution.areaError,gravity:{...lastSolution.gravity},contact:lastSolution.contact,
+      centroid:{...lastSolution.centroid},restCenter:{...lastSolution.restCenter},
+      screenCenterCovered:lastSolution.screenCenterCovered,restCenterCovered:lastSolution.restCenterCovered,
+      visibleArea:lastSolution.visibleArea,defaultVisibleArea:lastSolution.defaultVisibleArea,visibleAreaRatio:lastSolution.visibleAreaRatio,
+      contactEdges:{...lastSolution.contactEdges},roundedCornerContact:lastSolution.roundedCornerContact,metricTolerance:lastSolution.metricTolerance}:null}),
+  // Deterministic, read-only solver useful for integration diagnostics / regression checks.
+  solve:(width,height,roll,pitch,options={})=>{
+    if(![width,height,roll,pitch].every(finite)||width<50||height<50)return null;
+    return solveBubble(width,height,roll,pitch,{...cfg,...options});
+  }
+});
+addEventListener('pagehide',()=>{persist();resetBends();});
+try {
+  presetStore=GlisswayPresetStore.create({initialConfig:captureConfig(),validateConfig:cleanConfig,onError:error=>{migrationNotice='预设存储：'+error.message;}});
+  restoreConfig(presetStore.working());
+} catch(error) { migrationNotice='预设存储不可用：'+error.message; }
+chips();resize();updatePresetHint();
+if(migrationNotice)setTimeout(()=>toast(migrationNotice),500);
+if(window.GlisswayMidi)window.GlisswayMidi.requestState();
+</script>
+</body>
+</html>

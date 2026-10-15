@@ -14,5 +14,5 @@ dependencyResolutionManagement {
         google(); mavenCentral()
     }
 }
-rootProject.name = 'TiltMidi'
+rootProject.name = 'Glissway'
 include ':app'

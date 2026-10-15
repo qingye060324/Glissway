@@ -122,7 +122,7 @@ final class RtpMidi {
     }
 
     private void invite(Session session, DatagramSocket socket, int port, boolean dataPort) throws Exception {
-        byte[] invitation = ctrl("IN", session.token, session.ssrc, "Tilt MIDI");
+        byte[] invitation = ctrl("IN", session.token, session.ssrc, "Glissway");
         long deadline = SystemClock.elapsedRealtime() + 7000;
         byte[] buffer = new byte[2048];
         while (session.running && SystemClock.elapsedRealtime() < deadline) {
@@ -207,10 +207,19 @@ final class RtpMidi {
     }
 
     boolean send(int channel, int cc, int value) {
+        if (channel < 1 || channel > 16 || cc < 0 || cc > 127 || value < 0 || value > 127) return false;
+        return sendMessage(0xb0 | (channel - 1), cc, value);
+    }
+
+    boolean sendPitchBend(int channel, int value) {
+        if (channel < 1 || channel > 16 || value < 0 || value > 16383) return false;
+        return sendMessage(0xe0 | (channel - 1), value & 127, (value >> 7) & 127);
+    }
+
+    private boolean sendMessage(int status, int data1, int data2) {
         Session session = current;
         if (session == null || !session.running || !session.ready) return false;
-        return session.outgoing.offer(new byte[] {
-                (byte) (0xb0 | ((channel - 1) & 15)), (byte) (cc & 127), (byte) (value & 127) });
+        return session.outgoing.offer(new byte[] { (byte) status, (byte) data1, (byte) data2 });
     }
 
     synchronized void disconnect() {
